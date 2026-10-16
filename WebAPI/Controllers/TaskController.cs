@@ -143,58 +143,6 @@ namespace AutoPilot.WebAPI.Controllers
 			return Ok(await BuildTaskResponseAsync(task));
 		}
 
-		[HttpDelete("{id:guid}")]
-		public async Task<IActionResult> DeleteTask(Guid id)
-		{
-			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
-			if (task is null)
-			{
-				return NotFound();
-			}
-
-			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.WaitingForReview or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error or RepositoryTaskStatus.Cancelled))
-			{
-				return Conflict("Only unstarted, completed, failed or cancelled tasks can be deleted.");
-			}
-
-			if (!string.IsNullOrEmpty(task.BranchName))
-			{
-				string? token = configuration["Github:Token"];
-				long? githubId = await dbContext.Repositories
-					.Where(r => r.Id == task.RepositoryId)
-					.Select(r => (long?)r.GithubId)
-					.FirstOrDefaultAsync();
-
-				if (!string.IsNullOrWhiteSpace(token) && githubId is not null)
-				{
-									GitHubClient client = CreateGithubClient(token);
-					try
-					{
-						await client.Git.Reference.Delete(githubId.Value, $"heads/{task.BranchName}");
-					}
-					catch (NotFoundException)
-					{
-					}
-					catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
-					{
-					}
-					catch (Exception ex)
-					{
-						logger.LogError(ex, "Could not delete branch {Branch} for task {TaskId}", task.BranchName, id);
-						return StatusCode(StatusCodes.Status502BadGateway, "Could not delete the task branch.");
-					}
-				}
-			}
-
-			await dbContext.Conversations.Where(c => c.TaskId == id).ExecuteDeleteAsync();
-			dbContext.Tasks.Remove(task);
-			await dbContext.SaveChangesAsync();
-
-			TaskService.DeleteRepositoryFolder(id);
-
-			return NoContent();
-		}
-
 		[HttpPost("{id:guid}/merge")]
 		public async Task<IActionResult> MergeTask(Guid id)
 		{
@@ -269,9 +217,53 @@ namespace AutoPilot.WebAPI.Controllers
 				return Conflict("Only tasks waiting for review can be marked as completed.");
 			}
 
+			if (!string.IsNullOrEmpty(task.BranchName))
+			{
+				string? token = configuration["Github:Token"];
+				long? githubId = await dbContext.Repositories
+					.Where(r => r.Id == task.RepositoryId)
+					.Select(r => (long?)r.GithubId)
+					.FirstOrDefaultAsync();
+
+				bool clearBranch = true;
+				if (!string.IsNullOrWhiteSpace(token) && githubId is not null)
+				{
+					GitHubClient client = CreateGithubClient(token);
+					try
+					{
+						await client.Git.Reference.Delete(githubId.Value, $"heads/{task.BranchName}");
+					}
+					catch (NotFoundException)
+					{
+					}
+					catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
+					{
+					}
+					catch (Exception ex)
+					{
+						clearBranch = false;
+						logger.LogWarning(ex, "Could not delete branch {Branch} for task {TaskId}", task.BranchName, id);
+					}
+				}
+
+				if (clearBranch)
+				{
+					task.BranchName = null;
+				}
+			}
+
 			task.Status = RepositoryTaskStatus.Completed;
 			task.CompletionDateTime ??= DateTime.UtcNow;
 			await dbContext.SaveChangesAsync();
+
+			try
+			{
+				TaskService.DeleteRepositoryFolder(id);
+			}
+			catch (Exception ex)
+			{
+				logger.LogWarning(ex, "Could not delete repository folder for task {TaskId}", id);
+			}
 
 			return Ok(await BuildTaskResponseAsync(task));
 		}
@@ -290,9 +282,9 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.WaitingForReview or RepositoryTaskStatus.Completed))
+			if (task.Status != RepositoryTaskStatus.WaitingForReview)
 			{
-				return Conflict("Only completed tasks can receive follow-up changes.");
+				return Conflict("Only tasks waiting for review can receive follow-up changes.");
 			}
 
 			dbContext.Conversations.Add(new Conversation { TaskId = id, Author = ConversationAuthor.Neph, Content = request.Message.Trim() });

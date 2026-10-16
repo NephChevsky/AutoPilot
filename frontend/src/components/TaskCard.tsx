@@ -75,12 +75,11 @@ interface TaskCardProps {
   onUpdate: (taskId: string, title: string, text: string) => Promise<boolean>
   onMerge: (taskId: string) => void
   onComplete: (taskId: string) => void
-  onDelete: (taskId: string) => void
   onCancel: (taskId: string) => Promise<boolean>
   onFollowUp: (taskId: string, message: string) => Promise<boolean>
 }
 
-function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, onDelete, onCancel, onFollowUp }: TaskCardProps) {
+function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, onCancel, onFollowUp }: TaskCardProps) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
@@ -171,9 +170,6 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, on
           {task.status === 'WaitingForReview' && task.branchName && (
             <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
           )}
-          {(task.status === 'NotStarted' || task.status === 'WaitingForReview' || task.status === 'Completed' || task.status === 'Error' || task.status === 'Cancelled') && (
-            <ConfirmActionButton onConfirm={() => onDelete(task.id)} />
-          )}
         </div>
       </div>
       )}
@@ -185,7 +181,7 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, on
           isLast={index === conversation.length - 1}
         />
       ))}
-      {(task.status === 'WaitingForReview' || task.status === 'Completed') && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
+      {task.status === 'WaitingForReview' && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
       <div className="task-meta">
         <span>{new Date(task.creationDateTime).toLocaleString()}</span>
         {task.branchName && (
