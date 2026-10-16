@@ -79,9 +79,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{repository.name}</h1>
-                <span className="page-cost">
-                  Total: {totalCost.toFixed(2)} AIU · This month: {monthlyCost.toFixed(2)} AIU
-                </span>        <a
+        <a
           className="page-link"
           href={repository.htmlUrl}
           target="_blank"
@@ -95,6 +93,9 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
             <path d="M10 14 21 3" />
           </svg>
         </a>
+        <span className="page-cost">
+          Total: {totalCost.toFixed(2)} AIU · This month: {monthlyCost.toFixed(2)} AIU
+        </span>
         <button className="btn-primary" onClick={() => setCreatingTask(true)}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14" />
