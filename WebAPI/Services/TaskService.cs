@@ -113,17 +113,14 @@ namespace AutoPilot.WebAPI.Services
 		[
 			LoadAgent("orchestrator", "Orchestrator", "Plans the task, delegates implementation to the developer and review to the reviewer, and makes the final decision."),
 			LoadAgent("developer", "Developer", "Implements the assigned task in the codebase."),
-			LoadAgent("reviewer", "Reviewer", "Independently reviews code changes and reports findings 			without modifying code.", ReadOnlyTools),
+			LoadAgent("reviewer", "Reviewer", "Independently reviews code changes and reports findings without modifying code."),
 		];
 
-					private static readonly List<string> ReadOnlyTools = ["view", "grep", "glob"];
-
-					private static CustomAgentConfig LoadAgent(string name, string displayName, string description, List<string>? tools = null) => new()
-					{
-						Name = name,
-						DisplayName = displayName,
-						Description = description,
-						Tools = tools,
+		private static CustomAgentConfig LoadAgent(string name, string displayName, string description) => new()
+		{
+			Name = name,
+			DisplayName = displayName,
+			Description = description,
 			Prompt = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Agents", $"{name}.md")),
 			Infer = true,
 		};
