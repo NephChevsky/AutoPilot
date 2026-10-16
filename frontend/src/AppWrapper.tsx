@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
+import { Toaster } from 'react-hot-toast'
 import App from './App'
 
 function AppWrapper() {
@@ -9,7 +10,12 @@ function AppWrapper() {
     void initializeAuth()
   }, [initializeAuth])
 
-  return <App />
+  return (
+    <>
+      <App />
+      <Toaster position="bottom-center" />
+    </>
+  )
 }
 
 export default AppWrapper

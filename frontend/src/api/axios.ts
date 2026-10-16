@@ -14,6 +14,12 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+let onAuthExpired: (() => void) | undefined
+
+export function setAuthExpiredHandler(handler: (() => void) | undefined) {
+  onAuthExpired = handler
+}
+
 let isRefreshing = false
 let refreshQueue: { resolve: (token: string) => void; reject: (error: unknown) => void }[] = []
 
@@ -59,7 +65,11 @@ api.interceptors.response.use(
         return api(originalRequest)
       } catch (err) {
         processQueue(err, null)
-        setAccessToken(null)
+        const status = axios.isAxiosError(err) ? err.response?.status : undefined
+        if (status === 401 || status === 403) {
+          setAccessToken(null)
+          onAuthExpired?.()
+        }
         return Promise.reject(err)
       } finally {
         isRefreshing = false

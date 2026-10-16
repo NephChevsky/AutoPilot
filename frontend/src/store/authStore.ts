@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { jwtDecode } from 'jwt-decode'
-import api from '../api/axios'
+import toast from 'react-hot-toast'
+import api, { setAuthExpiredHandler } from '../api/axios'
 import { setAccessToken } from '../auth/tokenStore'
 
 export interface AuthUser {
@@ -58,3 +59,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 }))
+
+setAuthExpiredHandler(() => {
+  if (!useAuthStore.getState().user) return
+  useAuthStore.setState({ user: null })
+  toast.error('Session expired, please log in again')
+})
