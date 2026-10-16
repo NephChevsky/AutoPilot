@@ -194,6 +194,37 @@ a {
   color: #fff;
 }
 
+.delete-btn {
+  min-width: 92px;
+  overflow: hidden;
+}
+
+.delete-btn-label {
+  display: inline-block;
+  animation: delete-label-in 0.25s ease-out;
+}
+
+.delete-btn.confirming {
+  border-color: #7f1d1d;
+  background: #7f1d1d;
+}
+
+.delete-btn.arming {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+@keyframes delete-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .btn-secondary:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 2px;
