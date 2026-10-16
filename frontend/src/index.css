@@ -182,10 +182,16 @@ a {
   background: var(--surface-2);
 }
 
+.btn-secondary.danger {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
 .btn-secondary.danger:hover {
-  border-color: rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
+  border-color: #b91c1c;
+  background: #b91c1c;
+  color: #fff;
 }
 
 .btn-secondary:focus-visible {
