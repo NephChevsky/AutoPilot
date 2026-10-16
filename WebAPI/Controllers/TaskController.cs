@@ -335,7 +335,7 @@ namespace AutoPilot.WebAPI.Controllers
 				.MaxAsync(c => (DateTime?)c.CreationDateTime);
 			bool hasFollowUp = await dbContext.Conversations.CountAsync(c => c.TaskId == id && c.Author == ConversationAuthor.Neph) > 1;
 			await dbContext.Conversations
-				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Autopilot && (!hasFollowUp || c.CreationDateTime > lastUserMessage))
+				.Where(c => c.TaskId == id && c.Author != ConversationAuthor.Neph && (!hasFollowUp || c.CreationDateTime > lastUserMessage))
 				.ExecuteDeleteAsync();
 			await dbContext.SaveChangesAsync();
 

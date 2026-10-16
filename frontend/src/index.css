@@ -389,3 +389,12 @@ textarea {
   display: inline-block;
   width: 12px;
 }
+
+.agent-label {
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}

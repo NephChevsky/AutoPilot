@@ -5,7 +5,7 @@ import api from '../api/axios'
 export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'WaitingForReview' | 'Completed' | 'Error' | 'Cancelled'
 
 export interface ConversationItem {
-  author: 'Neph' | 'Autopilot'
+  author: 'Neph' | 'Autopilot' | 'Developer' | 'Reviewer'
   type: 'Message' | 'Reasoning'
   content: string
   creationDateTime: string

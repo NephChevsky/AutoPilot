@@ -17,6 +17,13 @@ const statusLabels: Record<TaskStatus, string> = {
   Cancelled: 'Cancelled',
 }
 
+const authorLabels: Record<ConversationItem['author'], string> = {
+  Neph: 'Neph',
+  Autopilot: 'Orchestrator',
+  Developer: 'Developer',
+  Reviewer: 'Reviewer',
+}
+
 interface DisplayItem extends ConversationItem {
   live?: boolean
 }
@@ -24,7 +31,7 @@ interface DisplayItem extends ConversationItem {
 // Merges consecutive reasoning items into one folded block; the trailing run of
 // reasoning items stays expanded and unmerged while the task is not completed
 function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayItem[] {
-  const isReasoning = (item: ConversationItem) => item.author === 'Autopilot' && item.type === 'Reasoning'
+  const isReasoning = (item: ConversationItem) => item.author !== 'Neph' && item.type === 'Reasoning'
   let liveStart = items.length
   if (status !== 'Completed' && status !== 'WaitingForReview') {
     while (liveStart > 0 && isReasoning(items[liveStart - 1])) liveStart--
@@ -35,7 +42,7 @@ function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayI
       return merged
     }
     const last = merged[merged.length - 1]
-    if (last && !last.live && isReasoning(last) && isReasoning(item)) {
+    if (last && !last.live && isReasoning(last) && isReasoning(item) && last.author === item.author) {
       merged[merged.length - 1] = { ...last, content: `${last.content}\n\n${item.content}` }
     } else {
       merged.push(item)
@@ -45,7 +52,7 @@ function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayI
 }
 
 function ConversationEntry({ item, status, isLast }: { item: DisplayItem; status: TaskStatus; isLast: boolean }) {
-  if (item.author !== 'Autopilot') {
+  if (item.author === 'Neph') {
     return <div className="task-text">{item.content}</div>
   }
   if (status === 'Error' && isLast) {
@@ -54,7 +61,7 @@ function ConversationEntry({ item, status, isLast }: { item: DisplayItem; status
   if (item.type === 'Reasoning' && !item.live) {
     return (
       <details className="reasoning-fold">
-        <summary>Show reasoning</summary>
+        <summary>Show reasoning · {authorLabels[item.author]}</summary>
         <div className="markdown">
           <Markdown>{item.content}</Markdown>
         </div>
@@ -63,6 +70,7 @@ function ConversationEntry({ item, status, isLast }: { item: DisplayItem; status
   }
   return (
     <div className="markdown">
+      {item.type === 'Reasoning' && <div className="agent-label">{authorLabels[item.author]}</div>}
       <Markdown>{item.content}</Markdown>
     </div>
   )

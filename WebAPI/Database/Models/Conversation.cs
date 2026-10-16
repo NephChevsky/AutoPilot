@@ -20,6 +20,8 @@ namespace AutoPilot.WebAPI.Database.Models
 	public enum ConversationAuthor
 	{
 		Neph,
-		Autopilot
+		Autopilot,
+		Developer,
+		Reviewer
 	}
 }

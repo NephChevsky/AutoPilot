@@ -386,13 +386,24 @@ namespace AutoPilot.WebAPI.Services
 					OnPermissionRequest = PermissionHandler.ApproveAll
 				});
 
+			// Events without an agent id come from the root agent; sub-agents are identified by the id given at spawn
+			ConcurrentDictionary<string, ConversationAuthor> subAgents = new();
+			session.On<SubagentStartedEvent>(evt =>
+			{
+				if (evt.AgentId is { } agentId && Enum.TryParse(evt.Data.AgentName, true, out ConversationAuthor author))
+				{
+					subAgents[agentId] = author;
+				}
+			});
+
 			session.On<AssistantReasoningEvent>(evt =>
 			{
+				ConversationAuthor author = evt.AgentId is { } id && subAgents.TryGetValue(id, out ConversationAuthor subAgent) ? subAgent : ConversationAuthor.Autopilot;
 				try
 				{
 					using IServiceScope scope = scopeFactory.CreateScope();
 					AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Type = ConversationType.Reasoning, Content = evt.Data.Content });
+					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = author, Type = ConversationType.Reasoning, Content = evt.Data.Content });
 					db.SaveChanges();
 				}
 				catch (Exception ex)
