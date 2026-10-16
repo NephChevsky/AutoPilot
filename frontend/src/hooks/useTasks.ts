@@ -21,6 +21,7 @@ export interface RepositoryTask {
   status: TaskStatus
   response: string | null
   branchName: string | null
+  cost: number | null
   conversation: ConversationItem[]
 }
 

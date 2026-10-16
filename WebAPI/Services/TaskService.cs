@@ -172,9 +172,10 @@ namespace AutoPilot.WebAPI.Services
 			string? response;
 			RepositoryTaskStatus finalStatus;
 			string? branchName = task.BranchName;
+			RunCost cost = new();
 			try
 			{
-				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cancellationToken);
+				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cost, cancellationToken);
 				branchName = await FindCreatedBranchAsync(task, cancellationToken);
 
 				finalStatus = RepositoryTaskStatus.Completed;
@@ -191,7 +192,7 @@ namespace AutoPilot.WebAPI.Services
 				// Host is stopping: leave the task restartable instead of stuck in Processing
 				try
 				{
-					await FinalizeTaskAsync(db, task, RepositoryTaskStatus.Error, task.BranchName, InterruptedMessage);
+					await FinalizeTaskAsync(db, task, RepositoryTaskStatus.Error, task.BranchName, InterruptedMessage, cost.Aiu);
 				}
 				catch (Exception saveEx)
 				{
@@ -203,7 +204,7 @@ namespace AutoPilot.WebAPI.Services
 
 			try
 			{
-				await FinalizeTaskAsync(db, task, finalStatus, branchName, response);
+				await FinalizeTaskAsync(db, task, finalStatus, branchName, response, cost.Aiu);
 			}
 			catch (Exception ex)
 			{
@@ -213,7 +214,7 @@ namespace AutoPilot.WebAPI.Services
 		}
 
 		// Guarded final write: only applies if this instance still owns the task (it may have been recovered as stale in the meantime)
-		private async Task FinalizeTaskAsync(AppDbContext db, RepositoryTask task, RepositoryTaskStatus status, string? branchName, string? message)
+		private async Task FinalizeTaskAsync(AppDbContext db, RepositoryTask task, 		RepositoryTaskStatus status, string? branchName, string? message, decimal runCost)
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
 
@@ -223,6 +224,7 @@ namespace AutoPilot.WebAPI.Services
 				.ExecuteUpdateAsync(s => s
 					.SetProperty(t => t.Status, status)
 					.SetProperty(t => t.BranchName, branchName)
+					.SetProperty(t => t.Cost, t => runCost > 0 ? (t.Cost ?? 0m) + runCost : t.Cost)
 					.SetProperty(t => t.CompletionDateTime, completionDateTime)
 					.SetProperty(t => t.ProcessingInstanceId, (Guid?)null)
 					.SetProperty(t => t.ProcessingProcessId, (int?)null)
@@ -274,7 +276,17 @@ namespace AutoPilot.WebAPI.Services
 			Infer = true,
 		};
 
-		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, bool isFollowUp, CancellationToken cancellationToken)
+		// Thread-safe accumulator of the Copilot cost (in nano-AIU) of a single run; usage events may arrive concurrently
+		private sealed class RunCost
+		{
+			private long nanoAiu;
+
+			public void Add(double nano) => Interlocked.Add(ref nanoAiu, (long)Math.Round(nano));
+
+			public decimal Aiu => Interlocked.Read(ref nanoAiu) / 1_000_000_000m;
+		}
+
+		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, bool isFollowUp, RunCost cost, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
 				?? throw new InvalidOperationException("Copilot:Token is not configured");
@@ -322,6 +334,15 @@ namespace AutoPilot.WebAPI.Services
 				catch (Exception ex)
 				{
 					logger.LogWarning(ex, "Could not store session event for task {TaskId}", task.Id);
+				}
+			});
+
+			// Every model call (including sub-agents') reports its own cost; the sum is the cost of this run
+			session.On<AssistantUsageEvent>(evt =>
+			{
+				if (evt.Data.CopilotUsage is { } usage)
+				{
+					cost.Add(usage.TotalNanoAiu);
 				}
 			});
 

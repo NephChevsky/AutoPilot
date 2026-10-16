@@ -27,6 +27,7 @@ namespace AutoPilot.WebAPI.Controllers
 			RepositoryTaskStatus Status,
 			string? Response,
 			string? BranchName,
+			decimal? Cost,
 			List<ConversationItemResponse> Conversation);
 
 		public record ConversationItemResponse(ConversationAuthor Author, ConversationType Type, string Content, DateTime CreationDateTime);
@@ -53,6 +54,7 @@ namespace AutoPilot.WebAPI.Controllers
 					t.Status,
 					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot && c.Type == ConversationType.Message).OrderByDescending(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault(),
 					t.BranchName,
+					t.Cost,
 					t.Conversations.OrderBy(c => c.CreationDateTime).Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime)).ToList()))
 				.ToListAsync();
 
@@ -92,7 +94,7 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName,
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName, task.Cost,
 				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
 		}
 
@@ -272,7 +274,7 @@ namespace AutoPilot.WebAPI.Controllers
 				.ToListAsync();
 			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
 
-			return new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation);
+			return new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, task.Cost, conversation);
 		}
 
 		private static GitHubClient CreateGithubClient(string token) =>
