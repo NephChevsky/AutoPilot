@@ -53,7 +53,15 @@ const statusLabels: Record<RepositoryTask['status'], string> = {
 const CONFIRM_ARM_DELAY_MS = 600
 const CONFIRM_TIMEOUT_MS = 4000
 
-function DeleteButton({ onConfirm }: { onConfirm: () => void }) {
+function DeleteButton({
+  onConfirm,
+  label = 'Delete',
+  className = 'btn-secondary danger',
+}: {
+  onConfirm: () => void
+  label?: string
+  className?: string
+}) {
   const [state, setState] = useState<'idle' | 'arming' | 'armed'>('idle')
 
   useEffect(() => {
@@ -69,12 +77,12 @@ function DeleteButton({ onConfirm }: { onConfirm: () => void }) {
 
   return (
     <button
-      className={`btn-secondary danger delete-btn${state === 'idle' ? '' : ' confirming'}${state === 'arming' ? ' arming' : ''}`}
+      className={`${className} delete-btn${state === 'idle' ? '' : ' confirming'}${state === 'arming' ? ' arming' : ''}`}
       onClick={() => (state === 'idle' ? setState('arming') : state === 'armed' && onConfirm())}
       onBlur={() => setState('idle')}
     >
       <span className="delete-btn-label" key={state === 'idle' ? 'delete' : 'confirm'}>
-        {state === 'idle' ? 'Delete' : 'Confirm?'}
+              {state === 'idle' ? label : 'Confirm?'}
       </span>
     </button>
   )
@@ -151,7 +159,6 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   }
 
   const mergeTask = async (taskId: string) => {
-    if (!window.confirm('Merge this task branch into the default branch?')) return
     try {
       const { data } = await api.post<RepositoryTask>(`/task/${taskId}/merge`)
       setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
@@ -243,9 +250,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                     </button>
                   )}
                   {task.status === 'Completed' && task.branchName && (
-                    <button className="btn-primary" onClick={() => mergeTask(task.id)}>
-                      Merge
-                    </button>
+                    <DeleteButton label="Merge" className="btn-primary" onConfirm={() => mergeTask(task.id)} />
                   )}
                   {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
                     <DeleteButton onConfirm={() => deleteTask(task.id)} />
