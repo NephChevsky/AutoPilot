@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
 import { Toaster } from 'react-hot-toast'
+import { usePwaUpdate } from './hooks/usePwaUpdate'
 import App from './App'
 
 function AppWrapper() {
@@ -9,6 +10,8 @@ function AppWrapper() {
   useEffect(() => {
     void initializeAuth()
   }, [initializeAuth])
+
+  usePwaUpdate()
 
   return (
     <>
@@ -19,3 +22,4 @@ function AppWrapper() {
 }
 
 export default AppWrapper
+
