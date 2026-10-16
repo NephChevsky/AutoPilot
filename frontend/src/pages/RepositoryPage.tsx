@@ -50,6 +50,36 @@ const statusLabels: Record<RepositoryTask['status'], string> = {
   Error: 'Error',
 }
 
+const CONFIRM_ARM_DELAY_MS = 600
+const CONFIRM_TIMEOUT_MS = 4000
+
+function DeleteButton({ onConfirm }: { onConfirm: () => void }) {
+  const [state, setState] = useState<'idle' | 'arming' | 'armed'>('idle')
+
+  useEffect(() => {
+    if (state === 'arming') {
+      const timer = setTimeout(() => setState('armed'), CONFIRM_ARM_DELAY_MS)
+      return () => clearTimeout(timer)
+    }
+    if (state === 'armed') {
+      const timer = setTimeout(() => setState('idle'), CONFIRM_TIMEOUT_MS)
+      return () => clearTimeout(timer)
+    }
+  }, [state])
+
+  return (
+    <button
+      className={`btn-secondary danger delete-btn${state === 'idle' ? '' : ' confirming'}${state === 'arming' ? ' arming' : ''}`}
+      onClick={() => (state === 'idle' ? setState('arming') : state === 'armed' && onConfirm())}
+      onBlur={() => setState('idle')}
+    >
+      <span className="delete-btn-label" key={state === 'idle' ? 'delete' : 'confirm'}>
+        {state === 'idle' ? 'Delete' : 'Confirm?'}
+      </span>
+    </button>
+  )
+}
+
 function RepositoryDetails({ id }: { id: string | undefined }) {
   const [repository, setRepository] = useState<GithubRepository | null>(null)
   const [tasks, setTasks] = useState<RepositoryTask[]>([])
@@ -133,7 +163,6 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   }
 
   const deleteTask = async (taskId: string) => {
-    if (!window.confirm('Delete this task and its conversation?')) return
     try {
       await api.delete(`/task/${taskId}`)
       setTasks((current) => current.filter((t) => t.id !== taskId))
@@ -219,9 +248,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                     </button>
                   )}
                   {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
-                    <button className="btn-secondary danger" onClick={() => deleteTask(task.id)}>
-                      Delete
-                    </button>
+                    <DeleteButton onConfirm={() => deleteTask(task.id)} />
                   )}
                 </div>
               </div>
