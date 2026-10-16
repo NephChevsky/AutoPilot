@@ -18,19 +18,19 @@ function HomePage() {
         <span className="page-cost">All repositories — {formatCosts(computeCosts(tasks, now))}</span>
       </div>
       <ul className="cost-list">
-        {repositories.map((repo) => (
-          <li key={repo.id} className="cost-item">
-            <span className="cost-name">{repo.name}</span>
-            <span className="page-cost">
-              {formatCosts(
-                computeCosts(
-                  tasks.filter((t) => t.repositoryId === repo.id),
-                  now,
-                ),
-              )}
-            </span>
-          </li>
-        ))}
+        {repositories.map((repo) => {
+          const costs = computeCosts(
+            tasks.filter((t) => t.repositoryId === repo.id),
+            now,
+          )
+          if (costs.total === 0) return null
+          return (
+            <li key={repo.id} className="cost-item">
+              <span className="cost-name">{repo.name}</span>
+              <span className="page-cost">{formatCosts(costs)}</span>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )
