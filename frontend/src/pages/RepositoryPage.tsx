@@ -28,6 +28,20 @@ interface ConversationItem {
   creationDateTime: string
 }
 
+// Collapses neighboring reasoning items into one block when reasoning is folded
+function mergeReasoning(items: ConversationItem[], status: RepositoryTask['status']): ConversationItem[] {
+  if (status !== 'Completed') return items
+  return items.reduce<ConversationItem[]>((merged, item) => {
+    const last = merged[merged.length - 1]
+    if (last && last.type === 'Reasoning' && item.type === 'Reasoning' && last.author === item.author) {
+      merged[merged.length - 1] = { ...last, content: `${last.content}\n\n${item.content}` }
+    } else {
+      merged.push(item)
+    }
+    return merged
+  }, [])
+}
+
 const statusLabels: Record<RepositoryTask['status'], string> = {
   NotStarted: 'Not started',
   PendingStart: 'Pending start',
@@ -184,7 +198,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   )}
                 </div>
               </div>
-              {task.conversation.slice(1).map((item, index, items) =>
+              {mergeReasoning(task.conversation.slice(1), task.status).map((item, index, items) =>
                 item.author === 'Autopilot' && task.status === 'Error' && index === items.length - 1 ? (
                   <pre key={index} className="task-error">{item.content}</pre>
                 ) : item.author === 'Autopilot' && item.type === 'Reasoning' && task.status === 'Completed' ? (
