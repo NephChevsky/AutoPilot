@@ -205,6 +205,24 @@ namespace AutoPilot.WebAPI.Services
 			return (process.ExitCode, await stdout);
 		}
 
+		public static void DeleteRepositoryFolder(Guid taskId)
+		{
+			string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", taskId.ToString());
+
+			if (!Directory.Exists(folder))
+			{
+				return;
+			}
+
+			// Git object files are read-only, which blocks recursive deletion on Windows
+			foreach (string file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+			{
+				File.SetAttributes(file, FileAttributes.Normal);
+			}
+
+			Directory.Delete(folder, recursive: true);
+		}
+
 		private async Task<string> CheckoutRepositoryAsync(RepositoryTask task, CancellationToken cancellationToken)
 		{
 			Repository repository = task.Repository
@@ -212,15 +230,7 @@ namespace AutoPilot.WebAPI.Services
 
 			string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", task.Id.ToString());
 
-			if (Directory.Exists(folder))
-			{
-				foreach (string file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
-				{
-					File.SetAttributes(file, FileAttributes.Normal);
-				}
-
-				Directory.Delete(folder, recursive: true);
-			}
+			DeleteRepositoryFolder(task.Id);
 
 			Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
 
