@@ -44,22 +44,7 @@ namespace AutoPilot.WebAPI.Migrations
                 {
                     table.PrimaryKey("pk_users", x => x.id);
                 });
-
-			migrationBuilder.Sql($@"
-                INSERT INTO users (
-                    id,
-                    name,
-                    password_hash,
-                    role
-                )
-                VALUES (
-                    '{Guid.NewGuid()}',
-                    'test',
-                    '{BCrypt.Net.BCrypt.HashPassword("test")}',
-                    'admin'
-                );"
-			);
-		}
+        }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
