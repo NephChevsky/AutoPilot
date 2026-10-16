@@ -69,6 +69,16 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     }
   }
 
+  const deleteTask = async (taskId: string) => {
+    if (!window.confirm('Delete this task and its conversation?')) return
+    try {
+      await api.delete(`/task/${taskId}`)
+      setTasks((current) => current.filter((t) => t.id !== taskId))
+    } catch {
+      toast.error('Failed to delete task')
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -141,6 +151,11 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   {(task.status === 'NotStarted' || task.status === 'Error') && (
                     <button className="btn-primary" onClick={() => startTask(task.id)}>
                       {task.status === 'Error' ? 'Retry' : 'Start'}
+                    </button>
+                  )}
+                  {(task.status === 'Completed' || task.status === 'Error') && (
+                    <button className="btn-primary" onClick={() => deleteTask(task.id)}>
+                      Delete
                     </button>
                   )}
                 </div>

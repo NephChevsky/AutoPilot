@@ -87,6 +87,27 @@ namespace AutoPilot.WebAPI.Controllers
 			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName));
 		}
 
+		[HttpDelete("{id:guid}")]
+		public async Task<IActionResult> DeleteTask(Guid id)
+		{
+			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
+			if (task is null)
+			{
+				return NotFound();
+			}
+
+			if (task.Status is not (RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
+			{
+				return Conflict("Only completed or failed tasks can be deleted.");
+			}
+
+			await dbContext.Conversations.Where(c => c.TaskId == id).ExecuteDeleteAsync();
+			dbContext.Tasks.Remove(task);
+			await dbContext.SaveChangesAsync();
+
+			return NoContent();
+		}
+
 		[HttpPost("{id:guid}/start")]
 		public async Task<IActionResult> StartTask(Guid id)
 		{
