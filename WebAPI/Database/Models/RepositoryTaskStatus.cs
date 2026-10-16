@@ -7,6 +7,7 @@ namespace AutoPilot.WebAPI.Database.Models
 		Processing,
 		WaitingForMerge,
 		Completed,
-		Error
+		Error,
+		Cancelled
 	}
 }

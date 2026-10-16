@@ -96,7 +96,7 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName, task.Cost,
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, task.Cost,
 				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
 		}
 
@@ -154,9 +154,9 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.WaitingForMerge or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
+			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.WaitingForMerge or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error or RepositoryTaskStatus.Cancelled))
 			{
-				return Conflict("Only unstarted, completed or failed tasks can be deleted.");
+				return Conflict("Only unstarted, completed, failed or cancelled tasks can be deleted.");
 			}
 
 			if (!string.IsNullOrEmpty(task.BranchName))
@@ -293,7 +293,7 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.Error))
+			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.Error or RepositoryTaskStatus.Cancelled))
 			{
 				return Conflict("Task has already been started.");
 			}
@@ -309,6 +309,46 @@ namespace AutoPilot.WebAPI.Controllers
 				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Autopilot && (!hasFollowUp || c.CreationDateTime > lastUserMessage))
 				.ExecuteDeleteAsync();
 			await dbContext.SaveChangesAsync();
+
+			return Ok(await BuildTaskResponseAsync(task));
+		}
+
+		[HttpPost("{id:guid}/cancel")]
+		public async Task<IActionResult> CancelTask(Guid id)
+		{
+			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
+			if (task is null)
+			{
+				return NotFound();
+			}
+
+			if (task.Status == RepositoryTaskStatus.PendingStart)
+			{
+				// Not picked up by the worker yet, so there is no run (or cost) to wait for
+				int updated = await dbContext.Tasks
+					.Where(t => t.Id == id && t.Status == RepositoryTaskStatus.PendingStart)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(t => t.Status, RepositoryTaskStatus.Cancelled)
+						.SetProperty(t => t.CompletionDateTime, DateTime.UtcNow));
+				if (updated > 0)
+				{
+					await dbContext.Entry(task).ReloadAsync();
+					return Ok(await BuildTaskResponseAsync(task));
+				}
+
+				await dbContext.Entry(task).ReloadAsync();
+			}
+
+			if (task.Status != RepositoryTaskStatus.Processing)
+			{
+				return Conflict("Only tasks being processed can be cancelled.");
+			}
+
+			// The worker stops the agent, saves the cost of the work done so far and sets the Cancelled status
+			if (!TaskService.TryCancel(id))
+			{
+				return Conflict("The task is not running on this server and cannot be cancelled.");
+			}
 
 			return Ok(await BuildTaskResponseAsync(task));
 		}

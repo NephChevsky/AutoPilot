@@ -14,6 +14,7 @@ const statusLabels: Record<TaskStatus, string> = {
   WaitingForMerge: 'Waiting for merge',
   Completed: 'Completed',
   Error: 'Error',
+  Cancelled: 'Cancelled',
 }
 
 interface DisplayItem extends ConversationItem {
@@ -74,14 +75,18 @@ interface TaskCardProps {
   onUpdate: (taskId: string, title: string, text: string) => Promise<boolean>
   onMerge: (taskId: string) => void
   onDelete: (taskId: string) => void
+  onCancel: (taskId: string) => Promise<boolean>
   onFollowUp: (taskId: string, message: string) => Promise<boolean>
 }
 
-function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFollowUp }: TaskCardProps) {
+function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCancel, onFollowUp }: TaskCardProps) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  // Reset once the task leaves Processing (cancelled, finished or retried)
+  if (cancelling && task.status !== 'Processing') setCancelling(false)
   const conversation = mergeReasoning(task.conversation.slice(1), task.status)
   const isEditing = editing && task.status === 'NotStarted'
 
@@ -142,15 +147,30 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFo
               Edit
             </button>
           )}
-          {(task.status === 'NotStarted' || task.status === 'Error') && (
+          {(task.status === 'NotStarted' || task.status === 'Error' || task.status === 'Cancelled') && (
             <button className="btn-primary" onClick={() => onStart(task.id)}>
-              {task.status === 'Error' ? 'Retry' : 'Start'}
+              {task.status === 'NotStarted' ? 'Start' : 'Retry'}
             </button>
+          )}
+          {task.status === 'Processing' && cancelling && (
+            <button className="btn-secondary" disabled>
+              Cancelling…
+            </button>
+          )}
+          {(task.status === 'PendingStart' || (task.status === 'Processing' && !cancelling)) && (
+            <ConfirmActionButton
+              label="Cancel"
+              onConfirm={async () => {
+                const wasProcessing = task.status === 'Processing'
+                const ok = await onCancel(task.id)
+                if (ok && wasProcessing) setCancelling(true)
+              }}
+            />
           )}
           {task.status === 'WaitingForMerge' && task.branchName && (
             <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
           )}
-          {(task.status === 'NotStarted' || task.status === 'WaitingForMerge' || task.status === 'Completed' || task.status === 'Error') && (
+          {(task.status === 'NotStarted' || task.status === 'WaitingForMerge' || task.status === 'Completed' || task.status === 'Error' || task.status === 'Cancelled') && (
             <ConfirmActionButton onConfirm={() => onDelete(task.id)} />
           )}
         </div>
