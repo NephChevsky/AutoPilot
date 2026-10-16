@@ -39,6 +39,10 @@ If an essential requirement is ambiguous and cannot safely be inferred, report i
 
 Do not claim that external verification or other operations occurred unless you actually performed them.
 
+## Node/npm project verification
+
+Before running JS/TS tooling (tsc, build, lint, tests) for a project, locate the directory containing its `package.json`; do not assume a fixed folder name. If `node_modules` is missing there, install dependencies in that directory first: `npm ci` when `package-lock.json` exists, otherwise `npm install` (use `yarn`/`pnpm` if that is the lockfile's package manager). Then run the project's own scripts from `package.json` (e.g. `npm run build`, `npm run lint`, `npx tsc -b` or `npx tsc --noEmit` as appropriate). Do not report `tsc` as unavailable without having done this; report the actual tool output.
+
 ## Review feedback
 
 When the Orchestrator provides review findings:

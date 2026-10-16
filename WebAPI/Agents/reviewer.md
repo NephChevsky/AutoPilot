@@ -48,6 +48,10 @@ In a codebase audit (and in a change review when the change touches these areas)
 - Concurrency or atomicity assumptions that are not enforced (e.g. non-atomic claim of work items).
 - Layers or modules coupled through internal details such as file layout or static helpers.
 
+## Node/npm project verification
+
+Before running JS/TS tooling (tsc, build, lint, tests) for a project, locate the directory containing its `package.json`; do not assume a fixed folder name. If `node_modules` is missing there, install dependencies in that directory first: `npm ci` when `package-lock.json` exists, otherwise `npm install` (use `yarn`/`pnpm` if that is the lockfile's package manager). Then run the project's own scripts from `package.json` (e.g. `npm run build`, `npm run lint`, `npx tsc -b` or `npx tsc --noEmit` as appropriate). Installing dependencies is allowed: it does not count as modifying source files, since `node_modules` is untracked. Report the actual tool output; never claim `tsc` is unavailable without having done this.
+
 ## Review standards
 
 For every suspected issue:
