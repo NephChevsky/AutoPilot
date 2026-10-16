@@ -92,7 +92,6 @@ function TaskCard({ task, repository, onStart, onMerge, onDelete, onFollowUp }: 
       {task.status === 'Completed' && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
       <div className="task-meta">
         <span>{new Date(task.creationDateTime).toLocaleString()}</span>
-        {task.cost != null && <span>Cost: {task.cost.toFixed(2)} AIU</span>}
         {task.branchName && (
           <a
             href={`${repository.htmlUrl}/compare/${encodeBranch(repository.defaultBranch || 'master')}...${encodeBranch(task.branchName)}`}
@@ -102,6 +101,7 @@ function TaskCard({ task, repository, onStart, onMerge, onDelete, onFollowUp }: 
             Branch: {task.branchName}
           </a>
         )}
+        {task.cost != null && <span className="task-cost">Cost: {task.cost.toFixed(2)} AIU</span>}
       </div>
     </li>
   )
