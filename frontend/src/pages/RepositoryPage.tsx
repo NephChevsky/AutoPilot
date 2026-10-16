@@ -11,7 +11,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
-  const { tasks, createTask, startTask, followUp, mergeTask, deleteTask } = useTasks(id)
+  const { tasks, createTask, updateTask, startTask, followUp, mergeTask, deleteTask } = useTasks(id)
 
   useEffect(() => {
     let cancelled = false
@@ -77,6 +77,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
               key={task.id}
               task={task}
               repository={repository}
+              onUpdate={updateTask}
               onStart={startTask}
               onMerge={mergeTask}
               onDelete={deleteTask}

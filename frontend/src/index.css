@@ -343,5 +343,7 @@ textarea {
 }
 
 .follow-up { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.task-edit { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+.task-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .follow-up-input { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #8884; background: transparent; color: inherit; }
 

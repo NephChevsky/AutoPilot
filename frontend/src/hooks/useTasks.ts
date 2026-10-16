@@ -88,6 +88,17 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
+  const updateTask = async (taskId: string, title: string, text: string) => {
+    try {
+      const { data } = await api.put<RepositoryTask>(`/task/${taskId}`, { title, task: text })
+      setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
+      return true
+    } catch {
+      toast.error('Failed to update task')
+      return false
+    }
+  }
+
   const startTask = async (taskId: string) => {
     try {
       const { data } = await api.post<RepositoryTask>(`/task/${taskId}/start`)
@@ -128,5 +139,5 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
-  return { tasks, createTask, startTask, followUp, mergeTask, deleteTask }
+  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, deleteTask }
 }
