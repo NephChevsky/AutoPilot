@@ -1,7 +1,7 @@
 import Markdown from 'react-markdown'
 import type { GithubRepository } from '../hooks/useRepositories'
 import type { ConversationItem, RepositoryTask, TaskStatus } from '../hooks/useTasks'
-import DeleteButton from './DeleteButton'
+import ConfirmActionButton from './ConfirmActionButton'
 import FollowUpForm from './FollowUpForm'
 
 const encodeBranch = (name: string) => name.split('/').map(encodeURIComponent).join('/')
@@ -79,10 +79,10 @@ function TaskCard({ task, repository, onStart, onMerge, onDelete, onFollowUp }: 
             </button>
           )}
           {task.status === 'Completed' && task.branchName && (
-            <DeleteButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
+            <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
           )}
           {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
-            <DeleteButton onConfirm={() => onDelete(task.id)} />
+            <ConfirmActionButton onConfirm={() => onDelete(task.id)} />
           )}
         </div>
       </div>

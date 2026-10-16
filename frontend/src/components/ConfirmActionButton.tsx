@@ -3,13 +3,13 @@ import { useEffect, useState } from 'react'
 const CONFIRM_ARM_DELAY_MS = 600
 const CONFIRM_TIMEOUT_MS = 4000
 
-interface DeleteButtonProps {
+interface ConfirmActionButtonProps {
   onConfirm: () => void
   label?: string
   className?: string
 }
 
-function DeleteButton({ onConfirm, label = 'Delete', className = 'btn-secondary danger' }: DeleteButtonProps) {
+function ConfirmActionButton({ onConfirm, label = 'Delete', className = 'btn-secondary danger' }: ConfirmActionButtonProps) {
   const [state, setState] = useState<'idle' | 'arming' | 'armed'>('idle')
 
   useEffect(() => {
@@ -36,4 +36,4 @@ function DeleteButton({ onConfirm, label = 'Delete', className = 'btn-secondary 
   )
 }
 
-export default DeleteButton
+export default ConfirmActionButton
