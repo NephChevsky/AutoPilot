@@ -78,6 +78,9 @@ namespace AutoPilot.WebAPI.Services
 			return true;
 		}
 
+		private const string BranchInstructions =
+			"\n\nIf you modify any code, do not commit to the default branch: create a new branch, commit your changes to it, and push that branch to the remote.";
+
 		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
@@ -102,7 +105,7 @@ namespace AutoPilot.WebAPI.Services
 			});
 
 			AssistantMessageEvent? response = await session.SendAndWaitAsync(
-				new MessageOptions { Prompt = task.Task },
+				new MessageOptions { Prompt = $"{task.Task}{BranchInstructions}" },
 				ProcessingTimeout,
 				cancellationToken);
 
