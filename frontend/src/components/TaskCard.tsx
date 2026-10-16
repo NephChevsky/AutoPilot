@@ -181,7 +181,7 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, on
           isLast={index === conversation.length - 1}
         />
       ))}
-      {(task.status === 'WaitingForReview' || task.status === 'Completed') && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
+      {task.status === 'WaitingForReview' && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
       <div className="task-meta">
         <span>{new Date(task.creationDateTime).toLocaleString()}</span>
         {task.branchName && (

@@ -225,6 +225,7 @@ namespace AutoPilot.WebAPI.Controllers
 					.Select(r => (long?)r.GithubId)
 					.FirstOrDefaultAsync();
 
+				bool clearBranch = true;
 				if (!string.IsNullOrWhiteSpace(token) && githubId is not null)
 				{
 					GitHubClient client = CreateGithubClient(token);
@@ -240,18 +241,29 @@ namespace AutoPilot.WebAPI.Controllers
 					}
 					catch (Exception ex)
 					{
+						clearBranch = false;
 						logger.LogWarning(ex, "Could not delete branch {Branch} for task {TaskId}", task.BranchName, id);
 					}
 				}
 
-				task.BranchName = null;
+				if (clearBranch)
+				{
+					task.BranchName = null;
+				}
 			}
 
 			task.Status = RepositoryTaskStatus.Completed;
 			task.CompletionDateTime ??= DateTime.UtcNow;
 			await dbContext.SaveChangesAsync();
 
-			TaskService.DeleteRepositoryFolder(id);
+			try
+			{
+				TaskService.DeleteRepositoryFolder(id);
+			}
+			catch (Exception ex)
+			{
+				logger.LogWarning(ex, "Could not delete repository folder for task {TaskId}", id);
+			}
 
 			return Ok(await BuildTaskResponseAsync(task));
 		}
@@ -270,9 +282,9 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.WaitingForReview or RepositoryTaskStatus.Completed))
+			if (task.Status != RepositoryTaskStatus.WaitingForReview)
 			{
-				return Conflict("Only completed tasks can receive follow-up changes.");
+				return Conflict("Only tasks waiting for review can receive follow-up changes.");
 			}
 
 			dbContext.Conversations.Add(new Conversation { TaskId = id, Author = ConversationAuthor.Neph, Content = request.Message.Trim() });
