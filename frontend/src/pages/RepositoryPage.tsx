@@ -13,7 +13,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   const [error, setError] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
   const [toggled, setToggled] = useState<Set<string>>(new Set())
-  const { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, deleteTask, cancelTask } = useTasks(id)
+  const { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, cancelTask } = useTasks(id)
 
   useEffect(() => {
     let cancelled = false
@@ -122,7 +122,6 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                       onStart={startTask}
                       onMerge={mergeTask}
                       onComplete={completeTask}
-                      onDelete={deleteTask}
                       onCancel={cancelTask}
                       onFollowUp={followUp}
                     />

@@ -138,15 +138,6 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
-  const deleteTask = async (taskId: string) => {
-    try {
-      await api.delete(`/task/${taskId}`)
-      setTasks((current) => current.filter((t) => t.id !== taskId))
-    } catch {
-      toast.error('Failed to delete task')
-    }
-  }
-
   const cancelTask = async (taskId: string): Promise<boolean> => {
     try {
       const { data } = await api.post<RepositoryTask>(`/task/${taskId}/cancel`)
@@ -159,5 +150,5 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
-  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, deleteTask, cancelTask }
+  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, cancelTask }
 }
