@@ -130,9 +130,19 @@ namespace AutoPilot.WebAPI.Services
 				OnPermissionRequest = PermissionHandler.ApproveAll
 			});
 
-			session.On<SessionEvent>(evt =>
+			session.On<AssistantReasoningEvent>(evt =>
 			{
-				logger.LogInformation("Received session event for task {TaskId}: {Event}", task.Id, evt);
+				try
+				{
+					using IServiceScope scope = scopeFactory.CreateScope();
+					AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = evt.Data.Content });
+					db.SaveChanges();
+				}
+				catch (Exception ex)
+				{
+					logger.LogWarning(ex, "Could not store session event for task {TaskId}", task.Id);
+				}
 			});
 
 			AssistantMessageEvent? response = await session.SendAndWaitAsync(
