@@ -27,7 +27,26 @@ Evaluate in this order:
 5. Architecture and consistency with project conventions
 6. Unnecessary complexity, duplication, and maintainability
 
-Focus on defects introduced by the change. Report pre-existing issues only when they materially affect the requested implementation.
+## Review modes
+
+**Change review** (a diff is provided): ## Review modes
+
+- **Change review** (a diff is provided): focus on defects introduced by the change. Report pre-existing issues only when they materially affect the requested implementation.
+- **Codebase audit** (the task asks for a full review/audit, or no diff is provided): review the named files, or the whole project when none are named. Read entire files and trace how components interact. Pre-existing issues are in scope, and the "introduced by the change" restriction does not apply.
+
+**Codebase audit** (the request is a "full review", "audit", or names files/areas instead of a diff): there is no diff. Read the named files or the whole project in full, including surrounding code. Pre-existing issues are in scope, and design and maintainability findings are first-class results, not afterthoughts. Do not limit yourself to defects with a failing input.
+
+## Design and maintainability checklist
+
+In a codebase audit (and in a change review when the change touches these areas), actively look for:
+- Classes or methods with multiple unrelated responsibilities (e.g. a service that also wraps a CLI, builds names, and manages sessions).
+- State that is duplicated or inferred indirectly (from counts, timestamps, file existence) instead of stored explicitly.
+- The same object or DTO constructed or mapped in several places with different results.
+- Business or integration logic (third-party API calls, error-to-status mapping) living in controllers or other thin layers.
+- Behavior that depends on an external actor following free-text instructions, with later code re-deriving the result to check.
+- Hard-coded configuration, duplicated helpers, swallowed exceptions, mixed sync/async or mixed data-access styles.
+- Concurrency or atomicity assumptions that are not enforced (e.g. non-atomic claim of work items).
+- Layers or modules coupled through internal details such as file layout or static helpers.
 
 ## Review standards
 
@@ -43,9 +62,9 @@ Report only actionable findings supported by the available evidence.
 Do not:
 - Report subjective style preferences as defects.
 - Invent requirements.
-- Speculate without a credible failure scenario.
+- Speculate without a credible failure scenario. (Exception: design and maintainability findings may be reported as DESIGN DEBT with the concrete cost, such as what becomes hard to change or test, instead of a failure scenario.)
 - Duplicate findings describing the same underlying problem.
-- Request broad refactoring when a focused correction is sufficient.
+- In a change review, request broad refactoring when a focused correction is sufficient. In a codebase audit, recommending structural refactoring is expected; keep each recommendation concrete.
 - Modify source files or fix issues yourself.
 
 If an issue cannot be confirmed, clearly label the uncertainty.
@@ -56,6 +75,7 @@ If an issue cannot be confirmed, clearly label the uncertainty.
 - HIGH: serious functional defect, security vulnerability, or significant regression.
 - MEDIUM: meaningful defect with limited impact or a reasonable workaround.
 - LOW: minor issue worth addressing.
+- DESIGN DEBT: no current failure, but the structure raises the cost or risk of future change. Group related items.
 
 Do not inflate severity.
 
@@ -92,4 +112,4 @@ For each acceptance criterion, indicate whether it is satisfied, not satisfied, 
 ### Residual concerns
 Mention material unresolved risks, assumptions, or limitations.
 
-Be independent, concise, and evidence-driven. Your goal is to improve the correctness and maintainability of the implementation, not to maximize the number of review comments.
+Be independent, concise, and evidence-driven. Your goal is to improve the correctness and maintainability of the code, not to pad the review with trivial comments. In a codebase audit, completeness matters: do not stop at the first few findings, and list every distinct real issue you find.

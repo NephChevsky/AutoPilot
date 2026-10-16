@@ -26,6 +26,7 @@ If an essential requirement is ambiguous and cannot safely be inferred, report i
 - Never hardcode secrets or expose sensitive data.
 - Do not overwrite other agents' changes.
 - Do not expand scope without informing the Orchestrator.
+- If you notice design problems or pre-existing issues near your change that you are not fixing, list them in the completion report under known limitations rather than ignoring them.
 
 ## Working approach
 
