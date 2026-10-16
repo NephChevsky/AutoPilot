@@ -62,6 +62,7 @@ namespace AutoPilot.WebAPI.Services
 			try
 			{
 				task.Response = await RunWithCopilotAsync(task, cancellationToken);
+				task.BranchName = await FindCreatedBranchAsync(task, cancellationToken);
 
 				task.Status = RepositoryTaskStatus.Completed;
 				logger.LogInformation("Completed task {TaskId}", task.Id);
@@ -125,6 +126,56 @@ namespace AutoPilot.WebAPI.Services
 			logger.LogInformation("Copilot response for task {TaskId}: {Response}", task.Id, response?.Data.Content);
 
 			return response?.Data.Content;
+		}
+
+		private async Task<string?> FindCreatedBranchAsync(RepositoryTask task, CancellationToken cancellationToken)
+		{
+			try
+			{
+				string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", task.Id.ToString());
+				string branch = BuildBranchName(task);
+
+				(int exitCode, string _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--verify", "--quiet", $"refs/heads/{branch}");
+				if (exitCode != 0)
+				{
+					return null;
+				}
+
+				(exitCode, string output) = await RunGitAsync(folder, cancellationToken, "rev-list", "--count", branch, "--not", "origin/HEAD");
+				return exitCode == 0 && int.TryParse(output.Trim(), out int count) && count > 0 ? branch : null;
+			}
+			catch (Exception ex) when (ex is not OperationCanceledException)
+			{
+				logger.LogWarning(ex, "Could not determine branch for task {TaskId}", task.Id);
+				return null;
+			}
+		}
+
+		private static async Task<(int ExitCode, string Output)> RunGitAsync(string workingDirectory, CancellationToken cancellationToken, params string[] args)
+		{
+			ProcessStartInfo startInfo = new("git")
+			{
+				WorkingDirectory = workingDirectory,
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+				UseShellExecute = false,
+				CreateNoWindow = true,
+			};
+
+			foreach (string arg in args)
+			{
+				startInfo.ArgumentList.Add(arg);
+			}
+
+			using Process process = Process.Start(startInfo)
+				?? throw new InvalidOperationException("Failed to start git");
+
+			Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+			Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+			await process.WaitForExitAsync(cancellationToken);
+			await stderr;
+
+			return (process.ExitCode, await stdout);
 		}
 
 		private async Task<string> CheckoutRepositoryAsync(RepositoryTask task, CancellationToken cancellationToken)

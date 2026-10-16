@@ -1,4 +1,4 @@
-using AutoPilot.WebAPI.Database;
+﻿using AutoPilot.WebAPI.Database;
 using AutoPilot.WebAPI.Database.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,7 +21,8 @@ namespace AutoPilot.WebAPI.Controllers
 			string Title,
 			string Task,
 			RepositoryTaskStatus Status,
-			string? Response);
+			string? Response,
+			string? BranchName);
 
 		[HttpGet]
 		public async Task<IActionResult> GetTasks([FromQuery] Guid? repositoryId)
@@ -35,7 +36,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 			List<TaskResponse> tasks = await query
 				.OrderByDescending(t => t.CreationDateTime)
-				.Select(t => new TaskResponse(t.Id, t.RepositoryId, t.CreationDateTime, t.CompletionDateTime, t.Title, t.Task, t.Status, t.Response))
+				.Select(t => new TaskResponse(t.Id, t.RepositoryId, t.CreationDateTime, t.CompletionDateTime, t.Title, t.Task, t.Status, t.Response, t.BranchName))
 				.ToListAsync();
 
 			return Ok(tasks);
@@ -70,7 +71,7 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Task, task.Status, task.Response));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Task, task.Status, task.Response, task.BranchName));
 		}
 
 		[HttpPost("{id:guid}/start")]
@@ -90,9 +91,10 @@ namespace AutoPilot.WebAPI.Controllers
 			task.Status = RepositoryTaskStatus.PendingStart;
 			task.CompletionDateTime = null;
 			task.Response = null;
+				task.BranchName = null;
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Task, task.Status, task.Response));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Task, task.Status, task.Response, task.BranchName));
 		}
 	}
 }

@@ -15,6 +15,7 @@ interface RepositoryTask {
   task: string
   status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
   response: string | null
+  branchName: string | null
 }
 
 const statusLabels: Record<RepositoryTask['status'], string> = {
@@ -132,6 +133,16 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                 <div>
                   {task.title && <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.title}</div>}
                   <div style={{ whiteSpace: 'pre-wrap' }}>{task.task}</div>
+                  {task.branchName && (
+                    <a
+                      href={`${repository.htmlUrl}/tree/${task.branchName.split('/').map(encodeURIComponent).join('/')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: 'inline-block', marginTop: 6, fontSize: 13 }}
+                    >
+                      Branch: {task.branchName}
+                    </a>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                   <span className={`status-label status-${task.status}`}>
