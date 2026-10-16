@@ -11,13 +11,14 @@ namespace AutoPilot.WebAPI.Controllers
 	[Route("api/[controller]")]
 	public class TaskController(AppDbContext dbContext) : ControllerBase
 	{
-		public record CreateTaskRequest(Guid RepositoryId, string Task);
+		public record CreateTaskRequest(Guid RepositoryId, string Title, string Task);
 
 		public record TaskResponse(
 			Guid Id,
 			Guid RepositoryId,
 			DateTime CreationDateTime,
 			DateTime? CompletionDateTime,
+			string Title,
 			string Task,
 			RepositoryTaskStatus Status,
 			string? Response);
@@ -34,7 +35,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 			List<TaskResponse> tasks = await query
 				.OrderByDescending(t => t.CreationDateTime)
-				.Select(t => new TaskResponse(t.Id, t.RepositoryId, t.CreationDateTime, t.CompletionDateTime, t.Task, t.Status, t.Response))
+				.Select(t => new TaskResponse(t.Id, t.RepositoryId, t.CreationDateTime, t.CompletionDateTime, t.Title, t.Task, t.Status, t.Response))
 				.ToListAsync();
 
 			return Ok(tasks);
@@ -43,6 +44,11 @@ namespace AutoPilot.WebAPI.Controllers
 		[HttpPost]
 		public async Task<IActionResult> CreateTask(CreateTaskRequest request)
 		{
+			if (string.IsNullOrWhiteSpace(request.Title))
+			{
+				return BadRequest("Task title is required.");
+			}
+
 			if (string.IsNullOrWhiteSpace(request.Task))
 			{
 				return BadRequest("Task text is required.");
@@ -57,13 +63,14 @@ namespace AutoPilot.WebAPI.Controllers
 			RepositoryTask task = new()
 			{
 				RepositoryId = request.RepositoryId,
+				Title = request.Title.Trim(),
 				Task = request.Task.Trim()
 			};
 
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status, task.Response));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Task, task.Status, task.Response));
 		}
 
 		[HttpPost("{id:guid}/start")]
@@ -85,7 +92,7 @@ namespace AutoPilot.WebAPI.Controllers
 			task.Response = null;
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status, task.Response));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Task, task.Status, task.Response));
 		}
 	}
 }
