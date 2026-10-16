@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import api from '../api/axios'
 
-export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
+export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'WaitingForMerge' | 'Completed' | 'Error'
 
 export interface ConversationItem {
   author: 'Neph' | 'Autopilot'

@@ -178,7 +178,7 @@ namespace AutoPilot.WebAPI.Services
 				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cost, cancellationToken);
 				branchName = await FindCreatedBranchAsync(task, cancellationToken);
 
-				finalStatus = RepositoryTaskStatus.Completed;
+				finalStatus = string.IsNullOrEmpty(branchName) ? RepositoryTaskStatus.Completed : RepositoryTaskStatus.WaitingForMerge;
 				logger.LogInformation("Completed task {TaskId}", task.Id);
 			}
 			catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)

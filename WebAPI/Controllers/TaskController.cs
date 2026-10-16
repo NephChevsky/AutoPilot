@@ -154,7 +154,7 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
+			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.WaitingForMerge or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
 			{
 				return Conflict("Only unstarted, completed or failed tasks can be deleted.");
 			}
@@ -206,9 +206,9 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status != RepositoryTaskStatus.Completed || string.IsNullOrEmpty(task.BranchName))
+			if (task.Status != RepositoryTaskStatus.WaitingForMerge || string.IsNullOrEmpty(task.BranchName))
 			{
-				return Conflict("Only completed tasks with a branch can be merged.");
+				return Conflict("Only tasks waiting for merge can be merged.");
 			}
 
 			string? token = configuration["Github:Token"];
@@ -251,6 +251,7 @@ namespace AutoPilot.WebAPI.Controllers
 			}
 
 			task.BranchName = null;
+			task.Status = RepositoryTaskStatus.Completed;
 			await dbContext.SaveChangesAsync();
 
 			return Ok(await BuildTaskResponseAsync(task));
@@ -270,7 +271,7 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status != RepositoryTaskStatus.Completed)
+			if (task.Status is not (RepositoryTaskStatus.WaitingForMerge or RepositoryTaskStatus.Completed))
 			{
 				return Conflict("Only completed tasks can receive follow-up changes.");
 			}

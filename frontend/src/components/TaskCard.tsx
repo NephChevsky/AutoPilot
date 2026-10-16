@@ -11,6 +11,7 @@ const statusLabels: Record<TaskStatus, string> = {
   NotStarted: 'Not started',
   PendingStart: 'Pending start',
   Processing: 'Processing',
+  WaitingForMerge: 'Waiting for merge',
   Completed: 'Completed',
   Error: 'Error',
 }
@@ -24,7 +25,7 @@ interface DisplayItem extends ConversationItem {
 function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayItem[] {
   const isReasoning = (item: ConversationItem) => item.author === 'Autopilot' && item.type === 'Reasoning'
   let liveStart = items.length
-  if (status !== 'Completed') {
+  if (status !== 'Completed' && status !== 'WaitingForMerge') {
     while (liveStart > 0 && isReasoning(items[liveStart - 1])) liveStart--
   }
   return items.reduce<DisplayItem[]>((merged, item, index) => {
@@ -146,10 +147,10 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFo
               {task.status === 'Error' ? 'Retry' : 'Start'}
             </button>
           )}
-          {task.status === 'Completed' && task.branchName && (
+          {task.status === 'WaitingForMerge' && task.branchName && (
             <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
           )}
-          {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
+          {(task.status === 'NotStarted' || task.status === 'WaitingForMerge' || task.status === 'Completed' || task.status === 'Error') && (
             <ConfirmActionButton onConfirm={() => onDelete(task.id)} />
           )}
         </div>
@@ -163,7 +164,7 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFo
           isLast={index === conversation.length - 1}
         />
       ))}
-      {task.status === 'Completed' && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
+      {(task.status === 'WaitingForMerge' || task.status === 'Completed') && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
       <div className="task-meta">
         <span>{new Date(task.creationDateTime).toLocaleString()}</span>
         {task.branchName && (
