@@ -5,7 +5,7 @@ function Layout() {
   return (
     <>
       <Sidebar />
-      <main style={{ marginLeft: 260, padding: 24 }}>
+      <main style={{ marginLeft: 260 }}>
         <Outlet />
       </main>
     </>

@@ -101,20 +101,20 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     }
   }, [id])
 
-  if (loading) return <p>Loading...</p>
-  if (error || !repository) return <p>Repository not found.</p>
+  if (loading) return <div className="page"><p>Loading...</p></div>
+  if (error || !repository) return <div className="page"><p>Repository not found.</p></div>
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h1 style={{ margin: 0 }}>{repository.name}</h1>
+    <div className="page">
+      <div className="page-header">
+        <h1 className="page-title">{repository.name}</h1>
         <a
+          className="page-link"
           href={repository.htmlUrl}
           target="_blank"
           rel="noopener noreferrer"
           title="Open on GitHub"
           aria-label="Open on GitHub"
-          style={{ display: 'flex', color: 'inherit' }}
         >
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -122,7 +122,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
             <path d="M10 14 21 3" />
           </svg>
         </a>
-        <button className="btn-primary" style={{ marginLeft: 12 }} onClick={() => setCreatingTask(true)}>
+        <button className="btn-primary" onClick={() => setCreatingTask(true)}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14" />
             <path d="M5 12h14" />
@@ -131,22 +131,19 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
         </button>
       </div>
 
-      <h2 style={{ marginTop: 24 }}>Tasks</h2>
+      <h2 className="section-title">Tasks</h2>
       {tasks.length === 0 ? (
-        <p>No tasks yet.</p>
+        <div className="empty-state">No tasks yet. Create one to get started.</div>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+        <ul className="task-list">
           {tasks.map((task) => (
-            <li
-              key={task.id}
-              style={{ padding: 12, border: '1px solid #323849', borderRadius: 8 }}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <li key={task.id} className="task-card">
+              <div className="task-head">
                 <div>
-                  {task.title && <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.title}</div>}
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{task.task}</div>
+                  {task.title && <div className="task-title">{task.title}</div>}
+                  <div className="task-text">{task.task}</div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                <div className="task-actions">
                   <span className={`status-label status-${task.status}`}>
                     {statusLabels[task.status]}
                   </span>
@@ -156,35 +153,20 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                     </button>
                   )}
                   {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
-                    <button className="btn-primary" onClick={() => deleteTask(task.id)}>
+                    <button className="btn-secondary danger" onClick={() => deleteTask(task.id)}>
                       Delete
                     </button>
                   )}
                 </div>
               </div>
-              {task.response && task.status === 'Error' && (
-                <pre
-                  style={{
-                    marginTop: 8,
-                    padding: 8,
-                    whiteSpace: 'pre-wrap',
-                    overflowWrap: 'anywhere',
-                    fontSize: 13,
-                    background: 'rgba(0, 0, 0, 0.2)',
-                    borderRadius: 6,
-                    color: '#f87171',
-                  }}
-                >
-                  {task.response}
-                </pre>
-              )}
+              {task.response && task.status === 'Error' && <pre className="task-error">{task.response}</pre>}
               {task.response && task.status !== 'Error' && (
                 <div className="markdown">
                   <Markdown>{task.response}</Markdown>
                 </div>
               )}
-              <div style={{ marginTop: 6, fontSize: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <span style={{ opacity: 0.6 }}>{new Date(task.creationDateTime).toLocaleString()}</span>
+              <div className="task-meta">
+                <span>{new Date(task.creationDateTime).toLocaleString()}</span>
                 {task.branchName && (
                   <a
                     href={`${repository.htmlUrl}/compare/${encodeBranch(repository.defaultBranch || 'master')}...${encodeBranch(task.branchName)}`}
@@ -199,7 +181,6 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
           ))}
         </ul>
       )}
-
       {creatingTask && (
         <CreateTaskDialog
           onClose={() => setCreatingTask(false)}

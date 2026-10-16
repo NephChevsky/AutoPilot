@@ -3,9 +3,183 @@
 @import '@fontsource/roboto/700.css';
 
 :root {
+  --bg: #12151d;
+  --surface: #1a1f2b;
+  --surface-2: #222838;
+  --border: #2c3345;
+  --text: #e6e9ef;
+  --text-muted: #8b93a7;
+  --accent: #3b82f6;
+  color-scheme: dark;
   font-family: 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+a {
+  color: #6ea8fe;
+}
+
+.page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 32px 32px 64px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.page-link {
+  display: flex;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.page-link:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.page-header .btn-primary {
+  margin-left: auto;
+}
+
+.section-title {
+  margin: 28px 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.empty-state {
+  padding: 40px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.task-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.task-card:hover {
+  border-color: #3d4660;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.task-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.task-title {
+  margin-bottom: 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.task-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #c4c9d6;
+  font-size: 14px;
+}
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.task-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: #f87171;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.btn-secondary {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-secondary:hover {
+  background: var(--surface-2);
+}
+
+.btn-secondary.danger:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
 }
 
 button,
@@ -47,9 +221,9 @@ textarea {
 
 .status-label {
   flex-shrink: 0;
-  padding: 4px 14px;
+  padding: 3px 12px;
   border-radius: 999px;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
