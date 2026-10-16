@@ -11,7 +11,7 @@ interface RepositoryTask {
   creationDateTime: string
   completionDateTime: string | null
   task: string
-  status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed'
+  status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
 }
 
 const statusLabels: Record<RepositoryTask['status'], string> = {
@@ -19,6 +19,7 @@ const statusLabels: Record<RepositoryTask['status'], string> = {
   PendingStart: 'Pending start',
   Processing: 'Processing',
   Completed: 'Completed',
+  Error: 'Error',
 }
 
 function RepositoryDetails({ id }: { id: string | undefined }) {
@@ -130,9 +131,9 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   <span className={`status-label status-${task.status}`}>
                     {statusLabels[task.status]}
                   </span>
-                  {task.status === 'NotStarted' && (
+                  {(task.status === 'NotStarted' || task.status === 'Error') && (
                     <button className="btn-primary" onClick={() => startTask(task.id)}>
-                      Start
+                      {task.status === 'Error' ? 'Retry' : 'Start'}
                     </button>
                   )}
                 </div>

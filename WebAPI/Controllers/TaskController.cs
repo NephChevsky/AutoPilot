@@ -74,12 +74,13 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status != RepositoryTaskStatus.NotStarted)
+			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.Error))
 			{
 				return Conflict("Task has already been started.");
 			}
 
 			task.Status = RepositoryTaskStatus.PendingStart;
+			task.CompletionDateTime = null;
 			await dbContext.SaveChangesAsync();
 
 			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status));

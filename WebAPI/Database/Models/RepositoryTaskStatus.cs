@@ -5,6 +5,7 @@ namespace AutoPilot.WebAPI.Database.Models
 		NotStarted,
 		PendingStart,
 		Processing,
-		Completed
+		Completed,
+		Error
 	}
 }
