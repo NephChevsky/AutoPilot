@@ -175,10 +175,10 @@ namespace AutoPilot.WebAPI.Controllers
 		{
 			// The user message is stamped before the model call and the reply after, so the order is deterministic
 			DateTime userTime = DateTime.UtcNow;
-			string reply;
+			ChatService.ChatReply reply;
 			try
 			{
-				reply = await chatService.AskAsync(history, message, cancellationToken);
+				reply = await chatService.AskAsync(chat.SessionId, history, message, cancellationToken);
 			}
 			catch (OperationCanceledException)
 			{
@@ -196,7 +196,8 @@ namespace AutoPilot.WebAPI.Controllers
 				replyTime = userTime.AddTicks(1);
 			}
 			ChatMessage userMessage = new() { Chat = chat, Role = ChatMessageRole.User, Content = message, CreationDateTime = userTime };
-			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply, CreationDateTime = replyTime };
+			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply.Content, CreationDateTime = replyTime };
+			chat.SessionId = reply.SessionId;
 
 			if (dbContext.Entry(chat).State == EntityState.Detached)
 			{

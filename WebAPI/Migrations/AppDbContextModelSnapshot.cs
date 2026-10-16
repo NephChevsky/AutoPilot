@@ -34,6 +34,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("creation_date_time");
 
+                    b.Property<string>("SessionId")
+                        .HasColumnType("text")
+                        .HasColumnName("session_id");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("text")

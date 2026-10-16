@@ -66,7 +66,7 @@ function ChatConversation({ id }: { id: string | undefined }) {
 
   return (
     <div className="chat-page">
-      <div className="chat-messages">
+      <div className="chat-messages themed-scroll">
         {loading && <div className="sidebar-message">Loading...</div>}
         {!loading && messages.length === 0 && !sending && (
           <div className="chat-empty">Ask anything to start a conversation.</div>

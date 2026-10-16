@@ -12,26 +12,64 @@ namespace AutoPilot.WebAPI.Services
 		private const int MaxHistoryCharacters = 40000;
 		private static readonly TimeSpan ReplyTimeout = TimeSpan.FromMinutes(5);
 
-		// Plain Q&A: a fresh session per message, the previous messages are replayed as context
-		public async Task<string> AskAsync(IReadOnlyList<ChatMessage> history, string message, CancellationToken cancellationToken)
+		public record ChatReply(string Content, string SessionId);
+
+		// Plain Q&A: the Copilot session is resumed by id; if it is gone, a new one is created and the stored messages are replayed once
+		public async Task<ChatReply> AskAsync(string? sessionId, IReadOnlyList<ChatMessage> history, string message, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
 				?? throw new InvalidOperationException("Copilot:Token is not configured");
 
+			// Empty mode: no ambient tools/instructions; the agent only sees an empty private folder, never the host files
+			string chatFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoPilot", "chat");
+			Directory.CreateDirectory(chatFolder);
+
 			await using CopilotClient client = new(new CopilotClientOptions
 			{
 				GitHubToken = token,
+				Mode = CopilotClientMode.Empty,
+				BaseDirectory = chatFolder,
+				WorkingDirectory = chatFolder,
 			});
 
 			await client.StartAsync(cancellationToken);
 
-			// Plain Q&A needs no tools: deny everything (PermissionDecision is flagged experimental by the SDK)
+			// Plain Q&A needs no tools: none are available and any permission request is rejected (PermissionDecision is flagged experimental by the SDK)
 #pragma warning disable GHCP001
-			await using CopilotSession session = await client.CreateSessionAsync(new SessionConfig
+			CopilotSession? resumed = null;
+			if (sessionId is not null)
 			{
+				try
+				{
+					resumed = await client.ResumeSessionAsync(sessionId, new ResumeSessionConfig
+					{
+						Model = CopilotModel,
+						ReasoningEffort = CopilotReasoningEffort,
+						WorkingDirectory = chatFolder,
+						AvailableTools = [],
+						ExcludedTools = ["builtin:*"],
+						Memory = new MemoryConfiguration { Enabled = false },
+						EnableSessionStore = false,
+						OnPermissionRequest = (_, _) => Task.FromResult(PermissionDecision.Reject("Tools are not available in chat"))
+					}, cancellationToken);
+				}
+				catch (Exception ex) when (ex is not OperationCanceledException)
+				{
+					logger.LogWarning(ex, "Could not resume chat session {SessionId}, starting a new one", sessionId);
+				}
+			}
+
+			string activeSessionId = resumed is not null ? sessionId! : Guid.NewGuid().ToString();
+			await using CopilotSession session = resumed ?? await client.CreateSessionAsync(new SessionConfig
+			{
+				SessionId = activeSessionId,
 				Model = CopilotModel,
 				ReasoningEffort = CopilotReasoningEffort,
+				WorkingDirectory = chatFolder,
+				AvailableTools = [],
 				ExcludedTools = ["builtin:*"],
+				Memory = new MemoryConfiguration { Enabled = false },
+				EnableSessionStore = false,
 				OnPermissionRequest = (_, _) => Task.FromResult(PermissionDecision.Reject("Tools are not available in chat"))
 			}, cancellationToken);
 #pragma warning restore GHCP001
@@ -40,7 +78,7 @@ namespace AutoPilot.WebAPI.Services
 			try
 			{
 				response = await session.SendAndWaitAsync(
-					new MessageOptions { Prompt = BuildPrompt(history, message) },
+					new MessageOptions { Prompt = resumed is not null ? message : BuildPrompt(history, message) },
 					ReplyTimeout,
 					cancellationToken);
 			}
@@ -66,7 +104,7 @@ namespace AutoPilot.WebAPI.Services
 				throw new InvalidOperationException("Empty response from the assistant");
 			}
 
-			return content;
+			return new ChatReply(content, activeSessionId);
 		}
 
 		private static string BuildPrompt(IReadOnlyList<ChatMessage> history, string message)

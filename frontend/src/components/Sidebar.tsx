@@ -44,7 +44,7 @@ function Sidebar() {
     <aside className="sidebar">
       <Link className="sidebar-title" to="/">AutoPilot</Link>
 
-      <nav className="sidebar-section sidebar-history">
+      <nav className="sidebar-section sidebar-history themed-scroll">
         <div className="sidebar-section-header">
           <span className="sidebar-section-title">History</span>
           <Link className="sidebar-refresh" to="/chats" title="New chat" aria-label="New chat">
@@ -83,7 +83,7 @@ function Sidebar() {
         </ul>
       </nav>
 
-      <nav className="sidebar-section">
+      <nav className="sidebar-section themed-scroll">
         <div className="sidebar-section-header">
           <span className="sidebar-section-title">Repositories</span>
           <button
