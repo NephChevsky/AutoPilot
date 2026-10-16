@@ -23,6 +23,40 @@ namespace AutoPilot.WebAPI.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Author")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("author");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreationDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creation_date_time");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conversations");
+
+                    b.HasIndex("TaskId")
+                        .HasDatabaseName("ix_conversations_task_id");
+
+                    b.ToTable("conversations", (string)null);
+                });
+
             modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Device", b =>
                 {
                     b.Property<Guid>("Id")
@@ -130,21 +164,12 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("repository_id");
 
-                    b.Property<string>("Response")
-                        .HasColumnType("text")
-                        .HasColumnName("response");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text")
                         .HasDefaultValue("NotStarted")
                         .HasColumnName("status");
-
-                    b.Property<string>("Task")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("task");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -188,6 +213,18 @@ namespace AutoPilot.WebAPI.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Conversation", b =>
+                {
+                    b.HasOne("AutoPilot.WebAPI.Database.Models.RepositoryTask", "Task")
+                        .WithMany("Conversations")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_conversations_tasks_task_id");
+
+                    b.Navigation("Task");
+                });
+
             modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.RepositoryTask", b =>
                 {
                     b.HasOne("AutoPilot.WebAPI.Database.Models.Repository", "Repository")
@@ -198,6 +235,11 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasConstraintName("fk_tasks_repositories_repository_id");
 
                     b.Navigation("Repository");
+                });
+
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.RepositoryTask", b =>
+                {
+                    b.Navigation("Conversations");
                 });
 #pragma warning restore 612, 618
         }

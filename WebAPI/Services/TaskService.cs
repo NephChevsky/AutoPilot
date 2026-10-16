@@ -59,9 +59,16 @@ namespace AutoPilot.WebAPI.Services
 
 			logger.LogInformation("Processing task {TaskId}", task.Id);
 
+			string? prompt = await db.Conversations
+				.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
+				.OrderBy(c => c.CreationDateTime)
+				.Select(c => c.Content)
+				.FirstOrDefaultAsync(cancellationToken);
+
+			string? response;
 			try
 			{
-				task.Response = await RunWithCopilotAsync(task, cancellationToken);
+				response = await RunWithCopilotAsync(task, prompt ?? string.Empty, cancellationToken);
 				task.BranchName = await FindCreatedBranchAsync(task, cancellationToken);
 
 				task.Status = RepositoryTaskStatus.Completed;
@@ -70,8 +77,13 @@ namespace AutoPilot.WebAPI.Services
 			catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
 			{
 				task.Status = RepositoryTaskStatus.Error;
-				task.Response = ex.ToString();
+				response = ex.ToString();
 				logger.LogError(ex, "Task {TaskId} failed", task.Id);
+			}
+
+			if (response is not null)
+			{
+				db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = response });
 			}
 
 			task.CompletionDateTime = DateTime.UtcNow;
@@ -95,7 +107,7 @@ namespace AutoPilot.WebAPI.Services
 			return $"autopilot/{(slug.Length == 0 ? task.Id : slug)}";
 		}
 
-		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, CancellationToken cancellationToken)
+		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
 				?? throw new InvalidOperationException("Copilot:Token is not configured");
@@ -119,7 +131,7 @@ namespace AutoPilot.WebAPI.Services
 			});
 
 			AssistantMessageEvent? response = await session.SendAndWaitAsync(
-				new MessageOptions { Prompt = $"{task.Task}{BuildBranchInstructions(task)}" },
+				new MessageOptions { Prompt = $"{prompt}{BuildBranchInstructions(task)}" },
 				ProcessingTimeout,
 				cancellationToken);
 
