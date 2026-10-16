@@ -11,7 +11,7 @@ const statusLabels: Record<TaskStatus, string> = {
   NotStarted: 'Not started',
   PendingStart: 'Pending start',
   Processing: 'Processing',
-  WaitingForMerge: 'Waiting for merge',
+  WaitingForReview: 'Waiting for review',
   Completed: 'Completed',
   Error: 'Error',
   Cancelled: 'Cancelled',
@@ -26,7 +26,7 @@ interface DisplayItem extends ConversationItem {
 function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayItem[] {
   const isReasoning = (item: ConversationItem) => item.author === 'Autopilot' && item.type === 'Reasoning'
   let liveStart = items.length
-  if (status !== 'Completed' && status !== 'WaitingForMerge') {
+  if (status !== 'Completed' && status !== 'WaitingForReview') {
     while (liveStart > 0 && isReasoning(items[liveStart - 1])) liveStart--
   }
   return items.reduce<DisplayItem[]>((merged, item, index) => {
@@ -74,12 +74,13 @@ interface TaskCardProps {
   onStart: (taskId: string) => void
   onUpdate: (taskId: string, title: string, text: string) => Promise<boolean>
   onMerge: (taskId: string) => void
+  onComplete: (taskId: string) => void
   onDelete: (taskId: string) => void
   onCancel: (taskId: string) => Promise<boolean>
   onFollowUp: (taskId: string, message: string) => Promise<boolean>
 }
 
-function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCancel, onFollowUp }: TaskCardProps) {
+function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, onDelete, onCancel, onFollowUp }: TaskCardProps) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
@@ -164,10 +165,13 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCa
               }}
             />
           )}
-          {task.status === 'WaitingForMerge' && task.branchName && (
+          {task.status === 'WaitingForReview' && (
+            <ConfirmActionButton label="Complete" onConfirm={() => onComplete(task.id)} />
+          )}
+          {task.status === 'WaitingForReview' && task.branchName && (
             <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
           )}
-          {(task.status === 'NotStarted' || task.status === 'WaitingForMerge' || task.status === 'Completed' || task.status === 'Error' || task.status === 'Cancelled') && (
+          {(task.status === 'NotStarted' || task.status === 'WaitingForReview' || task.status === 'Completed' || task.status === 'Error' || task.status === 'Cancelled') && (
             <ConfirmActionButton onConfirm={() => onDelete(task.id)} />
           )}
         </div>
@@ -181,7 +185,7 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCa
           isLast={index === conversation.length - 1}
         />
       ))}
-      {(task.status === 'WaitingForMerge' || task.status === 'Completed') && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
+      {(task.status === 'WaitingForReview' || task.status === 'Completed') && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
       <div className="task-meta">
         <span>{new Date(task.creationDateTime).toLocaleString()}</span>
         {task.branchName && (

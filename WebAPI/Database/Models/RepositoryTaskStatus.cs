@@ -5,7 +5,7 @@ namespace AutoPilot.WebAPI.Database.Models
 		NotStarted,
 		PendingStart,
 		Processing,
-		WaitingForMerge,
+		WaitingForReview,
 		Completed,
 		Error,
 		Cancelled

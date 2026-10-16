@@ -12,7 +12,8 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
-  const { tasks, createTask, updateTask, startTask, followUp, mergeTask, deleteTask, cancelTask } = useTasks(id)
+  const [toggled, setToggled] = useState<Set<string>>(new Set())
+  const { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, deleteTask, cancelTask } = useTasks(id)
 
   useEffect(() => {
     let cancelled = false
@@ -48,12 +49,20 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   const sections: { title: string; tasks: RepositoryTask[] }[] = [
     { title: 'Pending', tasks: withStatus('NotStarted', 'PendingStart').sort(byCreation) },
     { title: 'Processing', tasks: withStatus('Processing').sort(byCreation) },
-    { title: 'Waiting for merge', tasks: withStatus('WaitingForMerge').sort(byCreation) },
+    { title: 'Waiting for review', tasks: withStatus('WaitingForReview').sort(byCreation) },
     {
       title: 'Completed',
       tasks: withStatus('Completed', 'Error', 'Cancelled').sort((a, b) => finishedTime(b) - finishedTime(a)),
     },
   ]
+
+  const isOpen = (title: string) => (title === 'Completed') === toggled.has(title)
+  const toggleSection = (title: string) =>
+    setToggled((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(title)) next.add(title)
+      return next
+    })
 
   if (loading) return <div className="page"><p>Loading...</p></div>
   if (error || !repository) return <div className="page"><p>Repository not found.</p></div>
@@ -89,11 +98,18 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
         <div className="empty-state">No tasks yet. Create one to get started.</div>
       ) : (
         sections.map(
-          (section) =>
-            (section.tasks.length > 0 || (section.title === 'Pending' && creatingTask)) && (
+          (section) => {
+          if (!(section.tasks.length > 0 || (section.title === 'Pending' && creatingTask))) return null
+          const open = isOpen(section.title)
+          return (
               <section key={section.title}>
-                <h2 className="section-title">{section.title}</h2>
-                <ul className="task-list">
+                <h2 className="section-title">
+                  <button className="section-toggle" aria-expanded={open} onClick={() => toggleSection(section.title)}>
+                    <span className="section-chevron">{open ? '▾' : '▸'}</span>
+                    {section.title} ({section.tasks.length})
+                  </button>
+                </h2>
+                {open && <ul className="task-list">
                   {section.title === 'Pending' && creatingTask && (
                     <NewTaskCard onCreate={handleCreate} onCancel={() => setCreatingTask(false)} />
                   )}
@@ -105,15 +121,16 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                       onUpdate={updateTask}
                       onStart={startTask}
                       onMerge={mergeTask}
+                      onComplete={completeTask}
                       onDelete={deleteTask}
                       onCancel={cancelTask}
                       onFollowUp={followUp}
                     />
                   ))}
-                </ul>
+                </ul>}
               </section>
-            ),
-        )
+          )
+        })
       )}
     </div>
   )

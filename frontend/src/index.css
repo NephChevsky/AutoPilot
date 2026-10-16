@@ -311,7 +311,7 @@ textarea {
   color: #6ea8fe;
 }
 
-.status-WaitingForMerge {
+.status-WaitingForReview {
   background: rgba(168, 85, 247, 0.18);
   color: #c084fc;
 }
@@ -364,3 +364,22 @@ textarea {
 .task-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .follow-up-input { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #8884; background: transparent; color: inherit; }
 
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.section-chevron {
+  display: inline-block;
+  width: 12px;
+}

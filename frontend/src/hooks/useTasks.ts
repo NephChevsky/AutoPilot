@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import api from '../api/axios'
 
-export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'WaitingForMerge' | 'Completed' | 'Error' | 'Cancelled'
+export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'WaitingForReview' | 'Completed' | 'Error' | 'Cancelled'
 
 export interface ConversationItem {
   author: 'Neph' | 'Autopilot'
@@ -129,6 +129,15 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
+  const completeTask = async (taskId: string) => {
+    try {
+      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/complete`)
+      setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
+    } catch {
+      toast.error('Failed to mark task as completed')
+    }
+  }
+
   const deleteTask = async (taskId: string) => {
     try {
       await api.delete(`/task/${taskId}`)
@@ -150,5 +159,5 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
-  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, deleteTask, cancelTask }
+  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, deleteTask, cancelTask }
 }

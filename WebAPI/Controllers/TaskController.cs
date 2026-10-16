@@ -152,7 +152,7 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.WaitingForMerge or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error or RepositoryTaskStatus.Cancelled))
+			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.WaitingForReview or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error or RepositoryTaskStatus.Cancelled))
 			{
 				return Conflict("Only unstarted, completed, failed or cancelled tasks can be deleted.");
 			}
@@ -204,9 +204,9 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status != RepositoryTaskStatus.WaitingForMerge || string.IsNullOrEmpty(task.BranchName))
+			if (task.Status != RepositoryTaskStatus.WaitingForReview || string.IsNullOrEmpty(task.BranchName))
 			{
-				return Conflict("Only tasks waiting for merge can be merged.");
+				return Conflict("Only tasks waiting for review can be merged.");
 			}
 
 			string? token = configuration["Github:Token"];
@@ -255,6 +255,27 @@ namespace AutoPilot.WebAPI.Controllers
 			return Ok(await BuildTaskResponseAsync(task));
 		}
 
+		[HttpPost("{id:guid}/complete")]
+		public async Task<IActionResult> CompleteTask(Guid id)
+		{
+			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
+			if (task is null)
+			{
+				return NotFound();
+			}
+
+			if (task.Status != RepositoryTaskStatus.WaitingForReview)
+			{
+				return Conflict("Only tasks waiting for review can be marked as completed.");
+			}
+
+			task.Status = RepositoryTaskStatus.Completed;
+			task.CompletionDateTime ??= DateTime.UtcNow;
+			await dbContext.SaveChangesAsync();
+
+			return Ok(await BuildTaskResponseAsync(task));
+		}
+
 		[HttpPost("{id:guid}/follow-up")]
 		public async Task<IActionResult> FollowUp(Guid id, FollowUpRequest request)
 		{
@@ -269,7 +290,7 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.WaitingForMerge or RepositoryTaskStatus.Completed))
+			if (task.Status is not (RepositoryTaskStatus.WaitingForReview or RepositoryTaskStatus.Completed))
 			{
 				return Conflict("Only completed tasks can receive follow-up changes.");
 			}
