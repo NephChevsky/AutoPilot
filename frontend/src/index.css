@@ -328,3 +328,7 @@ textarea {
 .markdown code {
   font-size: 13px;
 }
+
+.follow-up { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.follow-up-input { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #8884; background: transparent; color: inherit; }
+

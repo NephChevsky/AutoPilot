@@ -59,16 +59,18 @@ namespace AutoPilot.WebAPI.Services
 
 			logger.LogInformation("Processing task {TaskId}", task.Id);
 
-			string? prompt = await db.Conversations
+			List<string> userMessages = await db.Conversations
 				.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
 				.OrderBy(c => c.CreationDateTime)
 				.Select(c => c.Content)
-				.FirstOrDefaultAsync(cancellationToken);
+				.ToListAsync(cancellationToken);
+			bool isFollowUp = userMessages.Count > 1 && Directory.Exists(GetRepositoryFolder(task.Id));
+			string prompt = (isFollowUp ? userMessages[^1] : userMessages.FirstOrDefault()) ?? string.Empty;
 
 			string? response;
 			try
 			{
-				response = await RunWithCopilotAsync(task, prompt ?? string.Empty, cancellationToken);
+				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cancellationToken);
 				task.BranchName = await FindCreatedBranchAsync(task, cancellationToken);
 
 				task.Status = RepositoryTaskStatus.Completed;
@@ -107,12 +109,12 @@ namespace AutoPilot.WebAPI.Services
 			return $"autopilot/{(slug.Length == 0 ? task.Id : slug)}";
 		}
 
-		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, CancellationToken cancellationToken)
+		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, bool isFollowUp, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
 				?? throw new InvalidOperationException("Copilot:Token is not configured");
 
-			string workingDirectory = await CheckoutRepositoryAsync(task, cancellationToken);
+			string workingDirectory = isFollowUp ? GetRepositoryFolder(task.Id) : await CheckoutRepositoryAsync(task, cancellationToken);
 
 			await using CopilotClient client = new(new CopilotClientOptions
 			{
@@ -122,14 +124,22 @@ namespace AutoPilot.WebAPI.Services
 
 			await client.StartAsync(cancellationToken);
 
-			await using CopilotSession session = await client.CreateSessionAsync(new SessionConfig
-			{
-				SessionId = task.Id.ToString(),
-				Model = "claude-sonnet-5.5",
-				ReasoningEffort = "medium",
-				WorkingDirectory = workingDirectory,
-				OnPermissionRequest = PermissionHandler.ApproveAll
-			});
+			await using CopilotSession session = isFollowUp
+				? await client.ResumeSessionAsync(task.Id.ToString(), new ResumeSessionConfig
+				{
+					Model = "claude-sonnet-5.5",
+					ReasoningEffort = "medium",
+					WorkingDirectory = workingDirectory,
+					OnPermissionRequest = PermissionHandler.ApproveAll
+				}, cancellationToken)
+				: await client.CreateSessionAsync(new SessionConfig
+				{
+					SessionId = task.Id.ToString(),
+					Model = "claude-sonnet-5.5",
+					ReasoningEffort = "medium",
+					WorkingDirectory = workingDirectory,
+					OnPermissionRequest = PermissionHandler.ApproveAll
+				});
 
 			session.On<AssistantReasoningEvent>(evt =>
 			{
@@ -160,7 +170,7 @@ namespace AutoPilot.WebAPI.Services
 		{
 			try
 			{
-				string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", task.Id.ToString());
+				string folder = GetRepositoryFolder(task.Id);
 				string branch = BuildBranchName(task);
 
 				(int exitCode, string _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--verify", "--quiet", $"refs/heads/{branch}");
@@ -206,9 +216,11 @@ namespace AutoPilot.WebAPI.Services
 			return (process.ExitCode, await stdout);
 		}
 
+		private static string GetRepositoryFolder(Guid taskId) => Path.Combine(AppContext.BaseDirectory, "Tasks", taskId.ToString());
+
 		public static void DeleteRepositoryFolder(Guid taskId)
 		{
-			string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", taskId.ToString());
+			string folder = GetRepositoryFolder(taskId);
 
 			if (!Directory.Exists(folder))
 			{

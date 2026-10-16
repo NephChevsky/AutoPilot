@@ -88,6 +88,37 @@ function DeleteButton({
   )
 }
 
+function FollowUpForm({ onSubmit }: { onSubmit: (message: string) => Promise<boolean> }) {
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const submit = async () => {
+    if (!message.trim() || sending) return
+    setSending(true)
+    const ok = await onSubmit(message.trim())
+    setSending(false)
+    if (ok) setMessage('')
+  }
+
+  return (
+    <div className="follow-up">
+      <textarea
+        className="follow-up-input"
+        rows={3}
+        placeholder="Propose changes..."
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
+        }}
+      />
+      <button className="btn-primary" disabled={!message.trim() || sending} onClick={submit}>
+        Send
+      </button>
+    </div>
+  )
+}
+
 function RepositoryDetails({ id }: { id: string | undefined }) {
   const [repository, setRepository] = useState<GithubRepository | null>(null)
   const [tasks, setTasks] = useState<RepositoryTask[]>([])
@@ -155,6 +186,17 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
       setTasks((current) => current.map((t) => (t.id === data.id ? data : t)))
     } catch {
       toast.error('Failed to start task')
+    }
+  }
+
+  const followUp = async (taskId: string, message: string) => {
+    try {
+      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/follow-up`, { message })
+      setTasks((current) => current.map((t) => (t.id === data.id ? data : t)))
+      return true
+    } catch {
+      toast.error('Failed to send changes')
+      return false
     }
   }
 
@@ -275,6 +317,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   <div key={index} className="task-text">{item.content}</div>
                 ),
               )}
+              {task.status === 'Completed' && <FollowUpForm onSubmit={(message) => followUp(task.id, message)} />}
               <div className="task-meta">
                 <span>{new Date(task.creationDateTime).toLocaleString()}</span>
                 {task.branchName && (

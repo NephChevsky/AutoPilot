@@ -15,6 +15,8 @@ namespace AutoPilot.WebAPI.Controllers
 	{
 		public record CreateTaskRequest(Guid RepositoryId, string Title, string Task);
 
+		public record FollowUpRequest(string Message);
+
 		public record TaskResponse(
 			Guid Id,
 			Guid RepositoryId,
@@ -212,6 +214,40 @@ namespace AutoPilot.WebAPI.Controllers
 			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
 		}
 
+		[HttpPost("{id:guid}/follow-up")]
+		public async Task<IActionResult> FollowUp(Guid id, FollowUpRequest request)
+		{
+			if (string.IsNullOrWhiteSpace(request.Message))
+			{
+				return BadRequest("Message is required.");
+			}
+
+			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
+			if (task is null)
+			{
+				return NotFound();
+			}
+
+			if (task.Status != RepositoryTaskStatus.Completed)
+			{
+				return Conflict("Only completed tasks can receive follow-up changes.");
+			}
+
+			dbContext.Conversations.Add(new Conversation { TaskId = id, Author = ConversationAuthor.Neph, Content = request.Message.Trim() });
+			task.Status = RepositoryTaskStatus.PendingStart;
+			task.CompletionDateTime = null;
+			await dbContext.SaveChangesAsync();
+
+			List<ConversationItemResponse> conversation = await dbContext.Conversations
+				.Where(c => c.TaskId == id)
+				.OrderBy(c => c.CreationDateTime)
+				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
+				.ToListAsync();
+			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
+
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
+		}
+
 		[HttpPost("{id:guid}/start")]
 		public async Task<IActionResult> StartTask(Guid id)
 		{
@@ -229,8 +265,12 @@ namespace AutoPilot.WebAPI.Controllers
 			task.Status = RepositoryTaskStatus.PendingStart;
 			task.CompletionDateTime = null;
 			task.BranchName = null;
+			DateTime? lastUserMessage = await dbContext.Conversations
+				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Neph)
+				.MaxAsync(c => (DateTime?)c.CreationDateTime);
+			bool hasFollowUp = await dbContext.Conversations.CountAsync(c => c.TaskId == id && c.Author == ConversationAuthor.Neph) > 1;
 			await dbContext.Conversations
-				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Autopilot)
+				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Autopilot && (!hasFollowUp || c.CreationDateTime > lastUserMessage))
 				.ExecuteDeleteAsync();
 			await dbContext.SaveChangesAsync();
 
