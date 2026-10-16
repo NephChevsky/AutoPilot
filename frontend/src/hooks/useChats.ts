@@ -41,6 +41,7 @@ interface ChatState {
   getChat: (id: string) => Promise<Chat | null>
   sendMessage: (chatId: string | undefined, message: string) => Promise<Chat | null>
   deleteChat: (id: string) => Promise<boolean>
+  reset: () => void
 }
 
 export const useChats = create<ChatState>((set) => ({
@@ -48,12 +49,14 @@ export const useChats = create<ChatState>((set) => ({
   loading: true,
   error: false,
 
+  reset: () => set({ chats: [], loading: true, error: false }),
+
   loadChats: async () => {
     try {
       const { data } = await api.get<ChatSummary[]>('/chat')
       set({ chats: data, error: false })
     } catch {
-      set({ error: true })
+      set({ chats: [], error: true })
     } finally {
       set({ loading: false })
     }

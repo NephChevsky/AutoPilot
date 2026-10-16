@@ -3,6 +3,7 @@ import { jwtDecode } from 'jwt-decode'
 import toast from 'react-hot-toast'
 import api, { setAuthExpiredHandler } from '../api/axios'
 import { setAccessToken } from '../auth/tokenStore'
+import { useChats } from '../hooks/useChats'
 
 export interface AuthUser {
   role: string
@@ -56,6 +57,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } finally {
       setAccessToken(null)
       set({ user: null })
+      useChats.getState().reset()
     }
   },
 }))
@@ -63,5 +65,6 @@ export const useAuthStore = create<AuthState>((set) => ({
 setAuthExpiredHandler(() => {
   if (!useAuthStore.getState().user) return
   useAuthStore.setState({ user: null })
+  useChats.getState().reset()
   toast.error('Session expired, please log in again')
 })

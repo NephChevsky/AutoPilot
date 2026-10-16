@@ -4,6 +4,7 @@ using AutoPilot.WebAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using System.Security.Claims;
 
 namespace AutoPilot.WebAPI.Controllers
@@ -14,6 +15,10 @@ namespace AutoPilot.WebAPI.Controllers
 	public class ChatController(AppDbContext dbContext, ChatService chatService, ILogger<ChatController> logger) : ControllerBase
 	{
 		private const int MaxTitleLength = 60;
+		private const int MaxMessageLength = 8000;
+
+		// One in-flight message per chat, so concurrent sends cannot interleave
+		private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ChatLocks = new();
 
 		public record SendMessageRequest(string Message);
 
@@ -36,7 +41,7 @@ namespace AutoPilot.WebAPI.Controllers
 			chat.Title,
 			chat.CreationDateTime,
 			chat.UpdateDateTime,
-			[.. chat.Messages.OrderBy(m => m.CreationDateTime).Select(ToResponse)]);
+			[.. chat.Messages.OrderBy(m => m.CreationDateTime).ThenBy(m => m.Role).Select(ToResponse)]);
 
 		private static string BuildTitle(string message)
 		{
@@ -90,6 +95,11 @@ namespace AutoPilot.WebAPI.Controllers
 				return BadRequest("Message is required.");
 			}
 
+			if (request.Message.Length > MaxMessageLength)
+			{
+				return BadRequest($"Message is too long (max {MaxMessageLength} characters).");
+			}
+
 			string message = request.Message.Trim();
 			Chat chat = new() { UserId = userId, Title = BuildTitle(message) };
 
@@ -109,17 +119,35 @@ namespace AutoPilot.WebAPI.Controllers
 				return BadRequest("Message is required.");
 			}
 
-			Chat? chat = await dbContext.Chats
-				.Include(c => c.Messages)
-				.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId, cancellationToken);
-			if (chat is null)
+			if (request.Message.Length > MaxMessageLength)
 			{
-				return NotFound("Chat not found.");
+				return BadRequest($"Message is too long (max {MaxMessageLength} characters).");
 			}
 
-			List<ChatMessage> history = [.. chat.Messages.OrderBy(m => m.CreationDateTime)];
+			SemaphoreSlim chatLock = ChatLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+			if (!await chatLock.WaitAsync(0, cancellationToken))
+			{
+				return Conflict("This chat is already waiting for an answer.");
+			}
 
-			return await AskAsync(chat, history, request.Message.Trim(), cancellationToken);
+			try
+			{
+				Chat? chat = await dbContext.Chats
+					.Include(c => c.Messages)
+					.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId, cancellationToken);
+				if (chat is null)
+				{
+					return NotFound("Chat not found.");
+				}
+
+				List<ChatMessage> history = [.. chat.Messages.OrderBy(m => m.CreationDateTime).ThenBy(m => m.Role)];
+
+				return await AskAsync(chat, history, request.Message.Trim(), cancellationToken);
+			}
+			finally
+			{
+				chatLock.Release();
+			}
 		}
 
 		[HttpDelete("{id:guid}")]
@@ -145,6 +173,8 @@ namespace AutoPilot.WebAPI.Controllers
 		// Both messages are stored only once the assistant answered, so a failed call leaves the chat untouched
 		private async Task<IActionResult> AskAsync(Chat chat, List<ChatMessage> history, string message, CancellationToken cancellationToken)
 		{
+			// The user message is stamped before the model call and the reply after, so the order is deterministic
+			DateTime userTime = DateTime.UtcNow;
 			string reply;
 			try
 			{
@@ -160,9 +190,13 @@ namespace AutoPilot.WebAPI.Controllers
 				return StatusCode(StatusCodes.Status502BadGateway, "The assistant could not answer.");
 			}
 
-			DateTime now = DateTime.UtcNow;
-			ChatMessage userMessage = new() { Chat = chat, Role = ChatMessageRole.User, Content = message, CreationDateTime = now };
-			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply, CreationDateTime = now.AddMilliseconds(1) };
+			DateTime replyTime = DateTime.UtcNow;
+			if (replyTime <= userTime)
+			{
+				replyTime = userTime.AddTicks(1);
+			}
+			ChatMessage userMessage = new() { Chat = chat, Role = ChatMessageRole.User, Content = message, CreationDateTime = userTime };
+			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply, CreationDateTime = replyTime };
 
 			if (dbContext.Entry(chat).State == EntityState.Detached)
 			{

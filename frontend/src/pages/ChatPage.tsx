@@ -13,7 +13,14 @@ function ChatConversation({ id }: { id: string | undefined }) {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const [text, setText] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
+  const mountedRef = useRef(true)
 
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   useEffect(() => {
     if (!id) return
     let cancelled = false
@@ -41,6 +48,7 @@ function ChatConversation({ id }: { id: string | undefined }) {
     setPendingMessage(message)
     setText('')
     const chat = await sendMessage(id, message)
+    if (!mountedRef.current) return
     if (!chat) {
       // Nothing was stored: give the text back so it can be resent
       setText(message)
