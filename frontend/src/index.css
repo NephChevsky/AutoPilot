@@ -130,6 +130,10 @@ a {
   border-radius: 6px;
 }
 
+.task-card > .task-text {
+  margin-top: 8px;
+}
+
 .task-actions {
   display: flex;
   align-items: center;
