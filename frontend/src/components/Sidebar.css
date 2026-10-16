@@ -113,6 +113,10 @@
   background: transparent;
 }
 
+.sidebar-row:has(.sidebar-item.active) {
+  background: #2d3345;
+}
+
 .sidebar-pin {
   display: flex;
   margin-right: 6px;

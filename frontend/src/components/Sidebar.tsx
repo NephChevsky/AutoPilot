@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useRepositories } from '../hooks/useRepositories'
 import { useAuthStore } from '../store/authStore'
 import './Sidebar.css'
@@ -41,15 +41,13 @@ function Sidebar() {
         <ul className="sidebar-list">
           {repositories.map((repo) => (
             <li key={repo.id} className={`sidebar-row${repo.pinned ? ' pinned' : ''}`}>
-              <a
-                className="sidebar-item"
-                href={repo.htmlUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <NavLink
+                className={({ isActive }) => `sidebar-item${isActive ? ' active' : ''}`}
+                to={`/repositories/${repo.id}`}
                 title={repo.name}
               >
                 {repo.name}
-              </a>
+              </NavLink>
               <button
                 className="sidebar-pin"
                 onClick={() => setPinned(repo.id, !repo.pinned)}

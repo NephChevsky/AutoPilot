@@ -1,4 +1,5 @@
 using AutoPilot.WebAPI.Database;
+using AutoPilot.WebAPI.Services;
 using DiscordLib;
 using JwtLib;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,7 @@ namespace AutoPilot.WebAPI
 			builder.Services.AddDiscordNotifierLib();
 			builder.Services.AddJwtAuthenticationLib(builder.Configuration);
 			builder.Services.AddHttpClient();
+			builder.Services.AddHostedService<TaskService>();
 
 			builder.Services.AddControllers(options =>
 			{

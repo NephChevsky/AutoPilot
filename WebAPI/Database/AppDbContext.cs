@@ -10,6 +10,7 @@ namespace AutoPilot.WebAPI.Database
 		public DbSet<User> Users { get; set; }
 		public DbSet<Device> Devices { get; set; }
 		public DbSet<Repository> Repositories { get; set; }
+		public DbSet<RepositoryTask> Tasks { get; set; }
 
 		protected override void OnModelCreating(ModelBuilder modelBuilder)
 		{
@@ -58,6 +59,27 @@ namespace AutoPilot.WebAPI.Database
 
 				entity.Property(e => e.DefaultBranch)
 					.IsRequired();
+			});
+
+			modelBuilder.Entity<RepositoryTask>(entity =>
+			{
+				entity.HasKey(e => e.Id);
+
+				entity.Property(e => e.Id)
+					.ValueGeneratedOnAdd();
+
+				entity.Property(e => e.Task)
+					.IsRequired();
+
+				entity.Property(e => e.Status)
+					.HasConversion<string>()
+					.HasDefaultValue(RepositoryTaskStatus.NotStarted)
+					.IsRequired();
+
+				entity.HasOne(e => e.Repository)
+					.WithMany()
+					.HasForeignKey(e => e.RepositoryId)
+					.OnDelete(DeleteBehavior.Cascade);
 			});
 		}
 	}

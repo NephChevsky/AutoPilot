@@ -107,6 +107,46 @@ namespace AutoPilot.WebAPI.Migrations
                     b.ToTable("repositories", (string)null);
                 });
 
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.RepositoryTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CompletionDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completion_date_time");
+
+                    b.Property<DateTime>("CreationDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creation_date_time");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("repository_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("NotStarted")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Task")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("task");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tasks");
+
+                    b.HasIndex("RepositoryId")
+                        .HasDatabaseName("ix_tasks_repository_id");
+
+                    b.ToTable("tasks", (string)null);
+                });
+
             modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -133,6 +173,18 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasName("pk_users");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.RepositoryTask", b =>
+                {
+                    b.HasOne("AutoPilot.WebAPI.Database.Models.Repository", "Repository")
+                        .WithMany()
+                        .HasForeignKey("RepositoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_tasks_repositories_repository_id");
+
+                    b.Navigation("Repository");
                 });
 #pragma warning restore 612, 618
         }

@@ -1,5 +1,5 @@
 function HomePage() {
-  return <h1>Welcome to AutoPilot</h1>
+  return null
 }
 
 export default HomePage

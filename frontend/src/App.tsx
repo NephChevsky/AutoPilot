@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import RepositoryPage from './pages/RepositoryPage'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         }
       >
         <Route path="/" element={<HomePage />} />
+        <Route path="/repositories/:id" element={<RepositoryPage />} />
       </Route>
     </Routes>
   )

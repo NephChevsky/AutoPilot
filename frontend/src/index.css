@@ -14,3 +14,62 @@ select,
 textarea {
   font-family: inherit;
 }
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #4b8df8, #3b82f6);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, #5a98fa, #4b8df8);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary:active {
+  transform: translateY(1px);
+}
+
+.btn-primary:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.status-label {
+  flex-shrink: 0;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-NotStarted {
+  background: rgba(139, 147, 167, 0.18);
+  color: #9aa3b8;
+}
+
+.status-PendingStart {
+  background: rgba(234, 179, 8, 0.18);
+  color: #e6b422;
+}
+
+.status-Processing {
+  background: rgba(59, 130, 246, 0.18);
+  color: #6ea8fe;
+}
+
+.status-Completed {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}

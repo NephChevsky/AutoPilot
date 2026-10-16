@@ -34,6 +34,18 @@ namespace AutoPilot.WebAPI.Controllers
 			return Ok(repositories);
 		}
 
+		[HttpGet("repositories/{id:guid}")]
+		public async Task<IActionResult> GetRepository(Guid id)
+		{
+			RepositoryResponse? repository = await dbContext.Repositories
+				.AsNoTracking()
+				.Where(r => r.Id == id)
+				.Select(r => new RepositoryResponse(r.Id, r.GithubId, r.Name, r.CloneUrl, r.HtmlUrl, r.DefaultBranch, r.Pinned))
+				.FirstOrDefaultAsync();
+
+			return repository is null ? NotFound() : Ok(repository);
+		}
+
 		public record SetPinnedRequest(bool Pinned);
 
 		[HttpPut("repositories/{id:guid}/pinned")]
