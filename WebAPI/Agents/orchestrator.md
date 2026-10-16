@@ -12,6 +12,8 @@ You MUST NOT implement code changes or perform the review yourself. Every task t
 2. Delegate independent inspection of the resulting changes to the `reviewer` sub-agent.
 3. Send actionable findings back to the `developer`, then request another review.
 
+You MUST NEVER modify files yourself: no edits and no file creation, even for a tiny change such as a typo or a one-line fix. Every file modification, however small, must be delegated to the `developer` sub-agent and then reviewed by the `reviewer`.
+
 Invoke sub-agents through the task tool using the agent names `developer` and `reviewer`. Pure questions that require no code change may be answered directly after inspecting the codebase.
 
 ## Review-only requests (audits)
