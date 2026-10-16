@@ -9,5 +9,6 @@ namespace AutoPilot.WebAPI.Database.Models
 		public DateTime? CompletionDateTime { get; set; }
 		public string Task { get; set; } = string.Empty;
 		public RepositoryTaskStatus Status { get; set; } = RepositoryTaskStatus.NotStarted;
+		public string? Response { get; set; }
 	}
 }

@@ -2,6 +2,8 @@ using AutoPilot.WebAPI.Database;
 using AutoPilot.WebAPI.Database.Models;
 using GitHub.Copilot;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
+using System.Text;
 
 namespace AutoPilot.WebAPI.Services
 {
@@ -58,7 +60,7 @@ namespace AutoPilot.WebAPI.Services
 
 			try
 			{
-				await RunWithCopilotAsync(task, cancellationToken);
+				task.Response = await RunWithCopilotAsync(task, cancellationToken);
 
 				task.Status = RepositoryTaskStatus.Completed;
 				logger.LogInformation("Completed task {TaskId}", task.Id);
@@ -66,6 +68,7 @@ namespace AutoPilot.WebAPI.Services
 			catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
 			{
 				task.Status = RepositoryTaskStatus.Error;
+				task.Response = ex.ToString();
 				logger.LogError(ex, "Task {TaskId} failed", task.Id);
 			}
 
@@ -75,14 +78,17 @@ namespace AutoPilot.WebAPI.Services
 			return true;
 		}
 
-		private async Task RunWithCopilotAsync(RepositoryTask task, CancellationToken cancellationToken)
+		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
 				?? throw new InvalidOperationException("Copilot:Token is not configured");
 
+			string workingDirectory = await CheckoutRepositoryAsync(task, cancellationToken);
+
 			await using CopilotClient client = new(new CopilotClientOptions
 			{
 				GitHubToken = token,
+				WorkingDirectory = workingDirectory,
 			});
 
 			await client.StartAsync(cancellationToken);
@@ -91,7 +97,8 @@ namespace AutoPilot.WebAPI.Services
 			{
 				Model = "claude-sonnet-5.5",
 				ReasoningEffort = "medium",
-				OnPermissionRequest = PermissionHandler.ApproveAll,
+				WorkingDirectory = workingDirectory,
+				OnPermissionRequest = PermissionHandler.ApproveAll
 			});
 
 			AssistantMessageEvent? response = await session.SendAndWaitAsync(
@@ -100,6 +107,68 @@ namespace AutoPilot.WebAPI.Services
 				cancellationToken);
 
 			logger.LogInformation("Copilot response for task {TaskId}: {Response}", task.Id, response?.Data.Content);
+
+			return response?.Data.Content;
+		}
+
+		private async Task<string> CheckoutRepositoryAsync(RepositoryTask task, CancellationToken cancellationToken)
+		{
+			Repository repository = task.Repository
+				?? throw new InvalidOperationException("Task repository not loaded");
+
+			string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", task.Id.ToString());
+
+			if (Directory.Exists(folder))
+			{
+				foreach (string file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+				{
+					File.SetAttributes(file, FileAttributes.Normal);
+				}
+
+				Directory.Delete(folder, recursive: true);
+			}
+
+			Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
+
+			ProcessStartInfo startInfo = new("git")
+			{
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+				UseShellExecute = false,
+				CreateNoWindow = true,
+			};
+
+			startInfo.ArgumentList.Add("clone");
+			startInfo.ArgumentList.Add(repository.CloneUrl);
+			startInfo.ArgumentList.Add(folder);
+
+			string? githubToken = configuration["Github:Token"];
+			if (!string.IsNullOrEmpty(githubToken))
+			{
+				string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"x-access-token:{githubToken}"));
+				startInfo.Environment["GIT_CONFIG_COUNT"] = "1";
+				startInfo.Environment["GIT_CONFIG_KEY_0"] = "http.extraheader";
+				startInfo.Environment["GIT_CONFIG_VALUE_0"] = $"AUTHORIZATION: basic {credentials}";
+			}
+
+			startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+
+			using Process process = Process.Start(startInfo)
+				?? throw new InvalidOperationException("Failed to start git");
+
+			Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+			Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+
+			await process.WaitForExitAsync(cancellationToken);
+
+			if (process.ExitCode != 0)
+			{
+				throw new InvalidOperationException($"git clone failed: {await stderr}");
+			}
+
+			await stdout;
+
+			return folder;
 		}
 	}
 }

@@ -126,6 +126,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("repository_id");
 
+                    b.Property<string>("Response")
+                        .HasColumnType("text")
+                        .HasColumnName("response");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

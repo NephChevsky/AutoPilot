@@ -19,7 +19,8 @@ namespace AutoPilot.WebAPI.Controllers
 			DateTime CreationDateTime,
 			DateTime? CompletionDateTime,
 			string Task,
-			RepositoryTaskStatus Status);
+			RepositoryTaskStatus Status,
+			string? Response);
 
 		[HttpGet]
 		public async Task<IActionResult> GetTasks([FromQuery] Guid? repositoryId)
@@ -33,7 +34,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 			List<TaskResponse> tasks = await query
 				.OrderByDescending(t => t.CreationDateTime)
-				.Select(t => new TaskResponse(t.Id, t.RepositoryId, t.CreationDateTime, t.CompletionDateTime, t.Task, t.Status))
+				.Select(t => new TaskResponse(t.Id, t.RepositoryId, t.CreationDateTime, t.CompletionDateTime, t.Task, t.Status, t.Response))
 				.ToListAsync();
 
 			return Ok(tasks);
@@ -62,7 +63,7 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status, task.Response));
 		}
 
 		[HttpPost("{id:guid}/start")]
@@ -81,9 +82,10 @@ namespace AutoPilot.WebAPI.Controllers
 
 			task.Status = RepositoryTaskStatus.PendingStart;
 			task.CompletionDateTime = null;
+			task.Response = null;
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Task, task.Status, task.Response));
 		}
 	}
 }

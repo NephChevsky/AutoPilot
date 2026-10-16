@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
+import Markdown from 'react-markdown'
 import { useParams } from 'react-router-dom'
 import api from '../api/axios'
 import CreateTaskDialog from '../components/CreateTaskDialog'
@@ -12,6 +13,7 @@ interface RepositoryTask {
   completionDateTime: string | null
   task: string
   status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
+  response: string | null
 }
 
 const statusLabels: Record<RepositoryTask['status'], string> = {
@@ -138,6 +140,27 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   )}
                 </div>
               </div>
+              {task.response && task.status === 'Error' && (
+                <pre
+                  style={{
+                    marginTop: 8,
+                    padding: 8,
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                    fontSize: 13,
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    borderRadius: 6,
+                    color: '#f87171',
+                  }}
+                >
+                  {task.response}
+                </pre>
+              )}
+              {task.response && task.status !== 'Error' && (
+                <div className="markdown">
+                  <Markdown>{task.response}</Markdown>
+                </div>
+              )}
               <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
                 {new Date(task.creationDateTime).toLocaleString()}
               </div>
