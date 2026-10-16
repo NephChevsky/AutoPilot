@@ -142,6 +142,11 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("text")
                         .HasColumnName("task");
 
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
                     b.HasKey("Id")
                         .HasName("pk_tasks");
 

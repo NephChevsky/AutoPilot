@@ -23,6 +23,23 @@
   font-size: 18px;
 }
 
+.dialog-input {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #323849;
+  border-radius: 4px;
+  background: #171b24;
+  color: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.dialog-input:focus {
+  outline: none;
+  border-color: #4d556e;
+}
+
 .dialog-textarea {
   width: 100%;
   padding: 10px;

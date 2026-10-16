@@ -11,6 +11,7 @@ interface RepositoryTask {
   repositoryId: string
   creationDateTime: string
   completionDateTime: string | null
+  title: string
   task: string
   status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
   response: string | null
@@ -48,9 +49,9 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     }
   }, [id])
 
-  const createTask = async (text: string) => {
+  const createTask = async (title: string, text: string) => {
     try {
-      const { data } = await api.post<RepositoryTask>('/task', { repositoryId: id, task: text })
+      const { data } = await api.post<RepositoryTask>('/task', { repositoryId: id, title, task: text })
       setTasks((current) => [data, ...current])
       setCreatingTask(false)
     } catch {
@@ -128,7 +129,10 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
               style={{ padding: 12, border: '1px solid #323849', borderRadius: 8 }}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{task.task}</div>
+                <div>
+                  {task.title && <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.title}</div>}
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{task.task}</div>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                   <span className={`status-label status-${task.status}`}>
                     {statusLabels[task.status]}
