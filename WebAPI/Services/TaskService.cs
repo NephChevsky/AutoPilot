@@ -130,6 +130,11 @@ namespace AutoPilot.WebAPI.Services
 				OnPermissionRequest = PermissionHandler.ApproveAll
 			});
 
+			session.On<SessionEvent>(evt =>
+			{
+				logger.LogInformation("Received session event for task {TaskId}: {Event}", task.Id, evt);
+			});
+
 			AssistantMessageEvent? response = await session.SendAndWaitAsync(
 				new MessageOptions { Prompt = $"{prompt}{BuildBranchInstructions(task)}" },
 				ProcessingTimeout,
