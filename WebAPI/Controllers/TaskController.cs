@@ -15,6 +15,8 @@ namespace AutoPilot.WebAPI.Controllers
 	{
 		public record CreateTaskRequest(Guid RepositoryId, string Title, string Task);
 
+		public record UpdateTaskRequest(string Title, string Task);
+
 		public record FollowUpRequest(string Message);
 
 		public record TaskResponse(
@@ -96,6 +98,51 @@ namespace AutoPilot.WebAPI.Controllers
 
 			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName, task.Cost,
 				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
+		}
+
+		[HttpPut("{id:guid}")]
+		public async Task<IActionResult> UpdateTask(Guid id, UpdateTaskRequest request)
+		{
+			if (string.IsNullOrWhiteSpace(request.Title))
+			{
+				return BadRequest("Task title is required.");
+			}
+
+			if (string.IsNullOrWhiteSpace(request.Task))
+			{
+				return BadRequest("Task text is required.");
+			}
+
+			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
+			if (task is null)
+			{
+				return NotFound();
+			}
+
+			if (task.Status != RepositoryTaskStatus.NotStarted)
+			{
+				return Conflict("Only unstarted tasks can be edited.");
+			}
+
+			Conversation? first = await dbContext.Conversations
+				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Neph)
+				.OrderBy(c => c.CreationDateTime)
+				.FirstOrDefaultAsync();
+
+			task.Title = request.Title.Trim();
+			string taskText = request.Task.Trim();
+			if (first is null)
+			{
+				dbContext.Conversations.Add(new Conversation { TaskId = id, Author = ConversationAuthor.Neph, Content = taskText });
+			}
+			else
+			{
+				first.Content = taskText;
+			}
+
+			await dbContext.SaveChangesAsync();
+
+			return Ok(await BuildTaskResponseAsync(task));
 		}
 
 		[HttpDelete("{id:guid}")]
