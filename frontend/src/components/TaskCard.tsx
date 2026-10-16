@@ -64,12 +64,14 @@ function ConversationEntry({ item, status, isLast }: { item: DisplayItem; status
     return (
       <details className="reasoning-fold">
         <summary>Show reasoning</summary>
-        {(item.group ?? [item]).map((entry, index) => (
-          <div className="markdown" key={index}>
-            <div className="agent-label">{authorLabels[entry.author]}</div>
-            <Markdown>{entry.content}</Markdown>
-          </div>
-        ))}
+        <div className="reasoning-fold-content">
+          {(item.group ?? [item]).map((entry, index) => (
+            <div className="markdown" key={index}>
+              <div className="agent-label">{authorLabels[entry.author]}</div>
+              <Markdown>{entry.content}</Markdown>
+            </div>
+          ))}
+        </div>
       </details>
     )
   }

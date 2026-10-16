@@ -198,6 +198,12 @@ a {
   user-select: none;
 }
 
+.reasoning-fold-content {
+  margin: 6px 0 0 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
 .task-meta {
   display: flex;
   flex-wrap: wrap;
