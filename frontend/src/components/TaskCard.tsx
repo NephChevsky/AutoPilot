@@ -15,12 +15,25 @@ const statusLabels: Record<TaskStatus, string> = {
   Error: 'Error',
 }
 
-// Collapses neighboring reasoning items into one block when reasoning is folded
-function mergeReasoning(items: ConversationItem[], status: TaskStatus): ConversationItem[] {
-  if (status !== 'Completed') return items
-  return items.reduce<ConversationItem[]>((merged, item) => {
+interface DisplayItem extends ConversationItem {
+  live?: boolean
+}
+
+// Merges consecutive reasoning items into one folded block; the trailing run of
+// reasoning items stays expanded and unmerged while the task is not completed
+function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayItem[] {
+  const isReasoning = (item: ConversationItem) => item.author === 'Autopilot' && item.type === 'Reasoning'
+  let liveStart = items.length
+  if (status !== 'Completed') {
+    while (liveStart > 0 && isReasoning(items[liveStart - 1])) liveStart--
+  }
+  return items.reduce<DisplayItem[]>((merged, item, index) => {
+    if (index >= liveStart) {
+      merged.push({ ...item, live: true })
+      return merged
+    }
     const last = merged[merged.length - 1]
-    if (last && last.type === 'Reasoning' && item.type === 'Reasoning' && last.author === item.author) {
+    if (last && !last.live && isReasoning(last) && isReasoning(item)) {
       merged[merged.length - 1] = { ...last, content: `${last.content}\n\n${item.content}` }
     } else {
       merged.push(item)
@@ -29,14 +42,14 @@ function mergeReasoning(items: ConversationItem[], status: TaskStatus): Conversa
   }, [])
 }
 
-function ConversationEntry({ item, status, isLast, isLastReasoning }: { item: ConversationItem; status: TaskStatus; isLast: boolean; isLastReasoning: boolean }) {
+function ConversationEntry({ item, status, isLast }: { item: DisplayItem; status: TaskStatus; isLast: boolean }) {
   if (item.author !== 'Autopilot') {
     return <div className="task-text">{item.content}</div>
   }
   if (status === 'Error' && isLast) {
     return <pre className="task-error">{item.content}</pre>
   }
-  if (item.type === 'Reasoning' && (status === 'Completed' || !isLastReasoning)) {
+  if (item.type === 'Reasoning' && !item.live) {
     return (
       <details className="reasoning-fold">
         <summary>Show reasoning</summary>
@@ -69,7 +82,6 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFo
   const [text, setText] = useState('')
   const [saving, setSaving] = useState(false)
   const conversation = mergeReasoning(task.conversation.slice(1), task.status)
-  const lastReasoningIndex = conversation.findLastIndex((item) => item.author === 'Autopilot' && item.type === 'Reasoning')
   const isEditing = editing && task.status === 'NotStarted'
 
   const startEditing = () => {
@@ -149,7 +161,6 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFo
           item={item}
           status={task.status}
           isLast={index === conversation.length - 1}
-          isLastReasoning={index === lastReasoningIndex}
         />
       ))}
       {task.status === 'Completed' && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
