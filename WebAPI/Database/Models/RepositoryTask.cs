@@ -13,6 +13,8 @@ namespace AutoPilot.WebAPI.Database.Models
 		public Guid? ProcessingInstanceId { get; set; }
 		public int? ProcessingProcessId { get; set; }
 		public DateTime? HeartbeatDateTime { get; set; }
+		// Accumulated Copilot cost of all runs of this task, in AI units (AIU)
+		public decimal? Cost { get; set; }
 		public List<Conversation> Conversations { get; set; } = [];
 	}
 }

@@ -161,6 +161,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completion_date_time");
 
+                    b.Property<decimal?>("Cost")
+                        .HasColumnType("numeric")
+                        .HasColumnName("cost");
+
                     b.Property<DateTime>("CreationDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("creation_date_time");

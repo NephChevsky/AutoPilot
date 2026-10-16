@@ -101,6 +101,7 @@ function TaskCard({ task, repository, onStart, onMerge, onDelete, onFollowUp }: 
             Branch: {task.branchName}
           </a>
         )}
+        {task.cost != null && <span className="task-cost">Cost: {task.cost.toFixed(2)} AIU</span>}
       </div>
     </li>
   )
