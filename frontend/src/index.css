@@ -109,9 +109,12 @@ a {
 
 .task-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-head .task-actions {
+  justify-content: flex-end;
 }
 
 .task-title {
