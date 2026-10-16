@@ -6,8 +6,15 @@ namespace AutoPilot.WebAPI.Database.Models
 		public Guid TaskId { get; set; }
 		public RepositoryTask? Task { get; set; }
 		public ConversationAuthor Author { get; set; }
+		public ConversationType Type { get; set; } = ConversationType.Message;
 		public string Content { get; set; } = string.Empty;
 		public DateTime CreationDateTime { get; set; } = DateTime.UtcNow;
+	}
+
+	public enum ConversationType
+	{
+		Message,
+		Reasoning
 	}
 
 	public enum ConversationAuthor

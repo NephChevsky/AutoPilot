@@ -1,4 +1,4 @@
-﻿using AutoPilot.WebAPI.Database;
+using AutoPilot.WebAPI.Database;
 using AutoPilot.WebAPI.Database.Models;
 using AutoPilot.WebAPI.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -27,7 +27,7 @@ namespace AutoPilot.WebAPI.Controllers
 			string? BranchName,
 			List<ConversationItemResponse> Conversation);
 
-		public record ConversationItemResponse(ConversationAuthor Author, string Content, DateTime CreationDateTime);
+		public record ConversationItemResponse(ConversationAuthor Author, ConversationType Type, string Content, DateTime CreationDateTime);
 
 		[HttpGet]
 		public async Task<IActionResult> GetTasks([FromQuery] Guid? repositoryId)
@@ -49,9 +49,9 @@ namespace AutoPilot.WebAPI.Controllers
 					t.Title,
 					t.Conversations.Where(c => c.Author == ConversationAuthor.Neph).OrderBy(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault() ?? string.Empty,
 					t.Status,
-					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot).OrderByDescending(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault(),
+					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot && c.Type == ConversationType.Message).OrderByDescending(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault(),
 					t.BranchName,
-					t.Conversations.OrderBy(c => c.CreationDateTime).Select(c => new ConversationItemResponse(c.Author, c.Content, c.CreationDateTime)).ToList()))
+					t.Conversations.OrderBy(c => c.CreationDateTime).Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime)).ToList()))
 				.ToListAsync();
 
 			return Ok(tasks);
@@ -91,7 +91,7 @@ namespace AutoPilot.WebAPI.Controllers
 			await dbContext.SaveChangesAsync();
 
 			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName,
-							[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Content, c.CreationDateTime))]));
+							[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
 					}
 
 					[HttpDelete("{id:guid}")]
@@ -171,7 +171,7 @@ namespace AutoPilot.WebAPI.Controllers
 			List<ConversationItemResponse> conversation = await dbContext.Conversations
 				.Where(c => c.TaskId == id)
 				.OrderBy(c => c.CreationDateTime)
-				.Select(c => new ConversationItemResponse(c.Author, c.Content, c.CreationDateTime))
+				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
 				.ToListAsync();
 			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
 
