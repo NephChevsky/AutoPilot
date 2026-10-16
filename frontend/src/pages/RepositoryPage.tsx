@@ -5,6 +5,7 @@ import NewTaskCard from '../components/NewTaskCard'
 import TaskCard from '../components/TaskCard'
 import type { GithubRepository } from '../hooks/useRepositories'
 import { useTasks } from '../hooks/useTasks'
+import type { RepositoryTask, TaskStatus } from '../hooks/useTasks'
 
 function RepositoryDetails({ id }: { id: string | undefined }) {
   const [repository, setRepository] = useState<GithubRepository | null>(null)
@@ -39,6 +40,21 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     return ok
   }
 
+  const byCreation = (a: RepositoryTask, b: RepositoryTask) =>
+    new Date(a.creationDateTime).getTime() - new Date(b.creationDateTime).getTime()
+  const finishedTime = (t: RepositoryTask) => new Date(t.completionDateTime ?? t.creationDateTime).getTime()
+  const withStatus = (...statuses: TaskStatus[]) => tasks.filter((t) => statuses.includes(t.status))
+
+  const sections: { title: string; tasks: RepositoryTask[] }[] = [
+    { title: 'Pending', tasks: withStatus('NotStarted', 'PendingStart').sort(byCreation) },
+    { title: 'Processing', tasks: withStatus('Processing').sort(byCreation) },
+    { title: 'Waiting for merge', tasks: withStatus('WaitingForMerge').sort(byCreation) },
+    {
+      title: 'Completed',
+      tasks: withStatus('Completed', 'Error', 'Cancelled').sort((a, b) => finishedTime(b) - finishedTime(a)),
+    },
+  ]
+
   if (loading) return <div className="page"><p>Loading...</p></div>
   if (error || !repository) return <div className="page"><p>Repository not found.</p></div>
 
@@ -69,26 +85,35 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
         </button>
       </div>
 
-      <h2 className="section-title">Tasks</h2>
       {tasks.length === 0 && !creatingTask ? (
         <div className="empty-state">No tasks yet. Create one to get started.</div>
       ) : (
-        <ul className="task-list">
-          {creatingTask && <NewTaskCard onCreate={handleCreate} onCancel={() => setCreatingTask(false)} />}
-          {tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              repository={repository}
-              onUpdate={updateTask}
-              onStart={startTask}
-              onMerge={mergeTask}
-              onDelete={deleteTask}
-              onCancel={cancelTask}
-              onFollowUp={followUp}
-            />
-          ))}
-        </ul>
+        sections.map(
+          (section) =>
+            (section.tasks.length > 0 || (section.title === 'Pending' && creatingTask)) && (
+              <section key={section.title}>
+                <h2 className="section-title">{section.title}</h2>
+                <ul className="task-list">
+                  {section.title === 'Pending' && creatingTask && (
+                    <NewTaskCard onCreate={handleCreate} onCancel={() => setCreatingTask(false)} />
+                  )}
+                  {section.tasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      repository={repository}
+                      onUpdate={updateTask}
+                      onStart={startTask}
+                      onMerge={mergeTask}
+                      onDelete={deleteTask}
+                      onCancel={cancelTask}
+                      onFollowUp={followUp}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ),
+        )
       )}
     </div>
   )
