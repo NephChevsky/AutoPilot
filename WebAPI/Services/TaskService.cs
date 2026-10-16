@@ -4,6 +4,7 @@ using GitHub.Copilot;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace AutoPilot.WebAPI.Services
 {
@@ -78,8 +79,20 @@ namespace AutoPilot.WebAPI.Services
 			return true;
 		}
 
-		private const string BranchInstructions =
-			"\n\nIf you modify any code, do not commit to the default branch: create a new branch, commit your changes to it, and push that branch to the remote.";
+		private static string BuildBranchInstructions(RepositoryTask task) =>
+			$"\n\nIf you modify any code, do not commit to the default branch: create a new branch named `{BuildBranchName(task)}`, commit your changes to it, and push that branch to the remote.";
+
+		private static string BuildBranchName(RepositoryTask task)
+		{
+			string slug = Regex.Replace(Regex.Replace(task.Title.Normalize(NormalizationForm.FormD), @"\p{M}", ""), @"[^a-zA-Z0-9]+", "-").Trim('-').ToLowerInvariant();
+
+			if (slug.Length > 50)
+			{
+				slug = slug[..50].TrimEnd('-');
+			}
+
+			return $"autopilot/{(slug.Length == 0 ? task.Id : slug)}";
+		}
 
 		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, CancellationToken cancellationToken)
 		{
@@ -105,7 +118,7 @@ namespace AutoPilot.WebAPI.Services
 			});
 
 			AssistantMessageEvent? response = await session.SendAndWaitAsync(
-				new MessageOptions { Prompt = $"{task.Task}{BranchInstructions}" },
+				new MessageOptions { Prompt = $"{task.Task}{BuildBranchInstructions(task)}" },
 				ProcessingTimeout,
 				cancellationToken);
 
