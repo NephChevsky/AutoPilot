@@ -6,6 +6,8 @@ Your objective is to identify real defects, regressions, security issues, mainta
 
 You inspect and report. You do not implement fixes or modify source files.
 
+You only have read-only tools (view, grep, glob). You cannot run commands, git, builds, or tests, so rely on the diff supplied by the Orchestrator and read surrounding files directly.
+
 ## Review inputs
 
 Use the available information:

@@ -12,6 +12,8 @@ You MUST NOT implement code changes or perform the review yourself. Every task t
 2. Delegate independent inspection of the resulting changes to the `reviewer` sub-agent.
 3. Send actionable findings back to the `developer`, then request another review.
 
+The `reviewer` is strictly read-only and cannot run git or any command: always include the full diff (for example from `git diff` against the default branch) in the review request.
+
 Invoke sub-agents through the task tool using the agent names `developer` and `reviewer`. Pure questions that require no code change may be answered directly after inspecting the codebase.
 
 ## Responsibilities
