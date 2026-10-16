@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Octokit;
+using System.Linq.Expressions;
 using DbRepository = AutoPilot.WebAPI.Database.Models.Repository;
 using GithubRepo = Octokit.Repository;
 
@@ -21,6 +22,8 @@ namespace AutoPilot.WebAPI.Controllers
 			string DefaultBranch,
 			bool Pinned);
 
+		public record SetPinnedRequest(bool Pinned);
+
 		[HttpGet("repositories")]
 		public async Task<IActionResult> GetRepositories()
 		{
@@ -28,7 +31,7 @@ namespace AutoPilot.WebAPI.Controllers
 				.AsNoTracking()
 				.OrderByDescending(r => r.Pinned)
 				.ThenBy(r => r.Name)
-				.Select(r => new RepositoryResponse(r.Id, r.GithubId, r.Name, r.CloneUrl, r.HtmlUrl, r.DefaultBranch, r.Pinned))
+				.Select(ToResponse)
 				.ToListAsync();
 
 			return Ok(repositories);
@@ -40,13 +43,14 @@ namespace AutoPilot.WebAPI.Controllers
 			RepositoryResponse? repository = await dbContext.Repositories
 				.AsNoTracking()
 				.Where(r => r.Id == id)
-				.Select(r => new RepositoryResponse(r.Id, r.GithubId, r.Name, r.CloneUrl, r.HtmlUrl, r.DefaultBranch, r.Pinned))
+				.Select(ToResponse)
 				.FirstOrDefaultAsync();
 
 			return repository is null ? NotFound() : Ok(repository);
 		}
 
-		public record SetPinnedRequest(bool Pinned);
+		private static readonly Expression<Func<DbRepository, RepositoryResponse>> ToResponse =
+			r => new RepositoryResponse(r.Id, r.GithubId, r.Name, r.CloneUrl, r.HtmlUrl, r.DefaultBranch, r.Pinned);
 
 		[HttpPut("repositories/{id:guid}/pinned")]
 		public async Task<IActionResult> SetPinned(Guid id, SetPinnedRequest request)

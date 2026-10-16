@@ -41,7 +41,7 @@ function CreateTaskDialog({ onCreate, onClose }: CreateTaskDialogProps) {
           </button>
           <button
             className="dialog-button primary"
-            onClick={() =>             onCreate(title.trim(), text.trim())}
+            onClick={() => onCreate(title.trim(), text.trim())}
                         disabled={!title.trim() || !text.trim()}
           >
             Create

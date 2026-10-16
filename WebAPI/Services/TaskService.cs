@@ -12,6 +12,9 @@ namespace AutoPilot.WebAPI.Services
 	{
 		private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 		private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromMinutes(30);
+		private const string CopilotModel = "claude-sonnet-5.5";
+		private const string CopilotReasoningEffort = "medium";
+		private const string OrchestratorAgent = "orchestrator";
 
 		protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 		{
@@ -23,7 +26,7 @@ namespace AutoPilot.WebAPI.Services
 
 					if (!processed)
 					{
-						await System.Threading.Tasks.Task.Delay(PollInterval, stoppingToken);
+						await Task.Delay(PollInterval, stoppingToken);
 					}
 				}
 				catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -111,7 +114,7 @@ namespace AutoPilot.WebAPI.Services
 
 		private static List<CustomAgentConfig> LoadAgents() =>
 		[
-			LoadAgent("orchestrator", "Orchestrator", "Plans the task, delegates implementation to the developer and review to the reviewer, and makes the final decision."),
+			LoadAgent(OrchestratorAgent, "Orchestrator", "Plans the task, delegates implementation to the developer and review to the reviewer, and makes the final decision."),
 			LoadAgent("developer", "Developer", "Implements the assigned task in the codebase."),
 			LoadAgent("reviewer", "Reviewer", "Independently reviews code changes and reports findings without modifying code."),
 		];
@@ -143,21 +146,21 @@ namespace AutoPilot.WebAPI.Services
 			await using CopilotSession session = isFollowUp
 				? await client.ResumeSessionAsync(task.Id.ToString(), new ResumeSessionConfig
 				{
-					Model = "claude-sonnet-5.5",
-					ReasoningEffort = "medium",
+					Model = CopilotModel,
+					ReasoningEffort = CopilotReasoningEffort,
 					WorkingDirectory = workingDirectory,
 					CustomAgents = LoadAgents(),
-					Agent = "orchestrator",
+					Agent = OrchestratorAgent,
 					OnPermissionRequest = PermissionHandler.ApproveAll
 				}, cancellationToken)
 				: await client.CreateSessionAsync(new SessionConfig
 				{
 					SessionId = task.Id.ToString(),
-					Model = "claude-sonnet-5.5",
-					ReasoningEffort = "medium",
+					Model = CopilotModel,
+					ReasoningEffort = CopilotReasoningEffort,
 					WorkingDirectory = workingDirectory,
 					CustomAgents = LoadAgents(),
-					Agent = "orchestrator",
+					Agent = OrchestratorAgent,
 					OnPermissionRequest = PermissionHandler.ApproveAll
 				});
 
@@ -209,31 +212,45 @@ namespace AutoPilot.WebAPI.Services
 			}
 		}
 
-		private static async Task<(int ExitCode, string Output)> RunGitAsync(string workingDirectory, CancellationToken cancellationToken, params string[] args)
+		private static ProcessStartInfo CreateGitStartInfo(string? workingDirectory, params string[] args)
 		{
 			ProcessStartInfo startInfo = new("git")
 			{
-				WorkingDirectory = workingDirectory,
 				RedirectStandardOutput = true,
 				RedirectStandardError = true,
 				UseShellExecute = false,
 				CreateNoWindow = true,
 			};
 
+			if (workingDirectory is not null)
+			{
+				startInfo.WorkingDirectory = workingDirectory;
+			}
+
 			foreach (string arg in args)
 			{
 				startInfo.ArgumentList.Add(arg);
 			}
 
+			return startInfo;
+		}
+
+		private static async Task<(int ExitCode, string Output, string Error)> RunProcessAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken)
+		{
 			using Process process = Process.Start(startInfo)
 				?? throw new InvalidOperationException("Failed to start git");
 
 			Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
 			Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);
 			await process.WaitForExitAsync(cancellationToken);
-			await stderr;
 
-			return (process.ExitCode, await stdout);
+			return (process.ExitCode, await stdout, await stderr);
+		}
+
+		private static async Task<(int ExitCode, string Output)> RunGitAsync(string workingDirectory, CancellationToken cancellationToken, params string[] args)
+		{
+			(int exitCode, string output, _) = await RunProcessAsync(CreateGitStartInfo(workingDirectory, args), cancellationToken);
+			return (exitCode, output);
 		}
 
 		private static string GetRepositoryFolder(Guid taskId) => Path.Combine(AppContext.BaseDirectory, "Tasks", taskId.ToString());
@@ -261,23 +278,13 @@ namespace AutoPilot.WebAPI.Services
 			Repository repository = task.Repository
 				?? throw new InvalidOperationException("Task repository not loaded");
 
-			string folder = Path.Combine(AppContext.BaseDirectory, "Tasks", task.Id.ToString());
+			string folder = GetRepositoryFolder(task.Id);
 
 			DeleteRepositoryFolder(task.Id);
 
 			Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
 
-			ProcessStartInfo startInfo = new("git")
-			{
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			};
-
-			startInfo.ArgumentList.Add("clone");
-			startInfo.ArgumentList.Add(repository.CloneUrl);
-			startInfo.ArgumentList.Add(folder);
+			ProcessStartInfo startInfo = CreateGitStartInfo(null, "clone", repository.CloneUrl, folder);
 
 			string? githubToken = configuration["Github:Token"];
 			if (!string.IsNullOrEmpty(githubToken))
@@ -290,20 +297,12 @@ namespace AutoPilot.WebAPI.Services
 
 			startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
 
-			using Process process = Process.Start(startInfo)
-				?? throw new InvalidOperationException("Failed to start git");
+			(int exitCode, _, string error) = await RunProcessAsync(startInfo, cancellationToken);
 
-			Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
-			Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);
-
-			await process.WaitForExitAsync(cancellationToken);
-
-			if (process.ExitCode != 0)
+			if (exitCode != 0)
 			{
-				throw new InvalidOperationException($"git clone failed: {await stderr}");
+				throw new InvalidOperationException($"git clone failed: {error}");
 			}
-
-			await stdout;
 
 			return folder;
 		}
