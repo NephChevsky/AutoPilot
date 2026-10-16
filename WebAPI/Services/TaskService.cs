@@ -184,6 +184,9 @@ namespace AutoPilot.WebAPI.Services
 				task.ProcessingInstanceId = InstanceId;
 				task.ProcessingProcessId = Environment.ProcessId;
 				task.HeartbeatDateTime = claimedAt;
+				// The claim was already written by ExecuteUpdate; without this, any later SaveChanges on this context
+				// would write the stale Processing state back over the finalized status
+				db.Entry(task).State = EntityState.Unchanged;
 
 				logger.LogInformation("Processing task {TaskId}", task.Id);
 
