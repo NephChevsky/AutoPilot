@@ -61,6 +61,24 @@ namespace AutoPilot.WebAPI.Controllers
 			return Ok(tasks);
 		}
 
+		public record RepositoryStatusSummary(Guid RepositoryId, List<RepositoryTaskStatus> Statuses);
+
+		[HttpGet("status-summary")]
+		public async Task<IActionResult> GetStatusSummary()
+		{
+			var pairs = await dbContext.Tasks.AsNoTracking()
+				.Select(t => new { t.RepositoryId, t.Status })
+				.Distinct()
+				.ToListAsync();
+
+			List<RepositoryStatusSummary> summary = pairs
+				.GroupBy(p => p.RepositoryId)
+				.Select(g => new RepositoryStatusSummary(g.Key, g.Select(p => p.Status).ToList()))
+				.ToList();
+
+			return Ok(summary);
+		}
+
 		[HttpPost]
 		public async Task<IActionResult> CreateTask(CreateTaskRequest request)
 		{
