@@ -96,7 +96,7 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName, task.Cost,
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, task.Cost,
 				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
 		}
 

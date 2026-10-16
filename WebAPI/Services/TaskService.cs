@@ -158,62 +158,67 @@ namespace AutoPilot.WebAPI.Services
 				return false;
 			}
 
-			DateTime claimedAt = DateTime.UtcNow;
-			// Guarded claim: a task cancelled while pending must not be moved back to Processing
-			int claimed = await db.Tasks
-				.Where(t => t.Id == task.Id && t.Status == RepositoryTaskStatus.PendingStart)
-				.ExecuteUpdateAsync(s => s
-					.SetProperty(t => t.Status, RepositoryTaskStatus.Processing)
-					.SetProperty(t => t.ProcessingInstanceId, InstanceId)
-					.SetProperty(t => t.ProcessingProcessId, Environment.ProcessId)
-					.SetProperty(t => t.HeartbeatDateTime, claimedAt), cancellationToken);
-			if (claimed == 0)
-			{
-				return true;
-			}
-
-			task.Status = RepositoryTaskStatus.Processing;
-			task.ProcessingInstanceId = InstanceId;
-			task.ProcessingProcessId = Environment.ProcessId;
-			task.HeartbeatDateTime = claimedAt;
-
-			logger.LogInformation("Processing task {TaskId}", task.Id);
-
 			using CancellationTokenSource heartbeatCts = new();
 			using CancellationTokenSource taskCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+			// Registered before the claim so a cancel request can never see a Processing task without a CTS
 			RunningTasks[task.Id] = taskCts;
-			Task heartbeat = RunHeartbeatAsync(task.Id, heartbeatCts.Token);
+			Task? heartbeat = null;
 
 			try
 			{
+				DateTime claimedAt = DateTime.UtcNow;
+				// Guarded claim: a task cancelled while pending must not be moved back to Processing
+				int claimed = await db.Tasks
+					.Where(t => t.Id == task.Id && t.Status == RepositoryTaskStatus.PendingStart)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(t => t.Status, RepositoryTaskStatus.Processing)
+						.SetProperty(t => t.ProcessingInstanceId, InstanceId)
+						.SetProperty(t => t.ProcessingProcessId, Environment.ProcessId)
+						.SetProperty(t => t.HeartbeatDateTime, claimedAt), cancellationToken);
+				if (claimed == 0)
+				{
+					return true;
+				}
+
+				task.Status = RepositoryTaskStatus.Processing;
+				task.ProcessingInstanceId = InstanceId;
+				task.ProcessingProcessId = Environment.ProcessId;
+				task.HeartbeatDateTime = claimedAt;
+
+				logger.LogInformation("Processing task {TaskId}", task.Id);
+
+				heartbeat = RunHeartbeatAsync(task.Id, heartbeatCts.Token);
 				await ProcessTaskAsync(db, task, taskCts.Token, cancellationToken);
 			}
 			finally
 			{
 				RunningTasks.TryRemove(task.Id, out _);
 				await heartbeatCts.CancelAsync();
-				await heartbeat;
+				if (heartbeat is not null)
+				{
+					await heartbeat;
+				}
 			}
 
 			return true;
 		}
 
-		private async Task ProcessTaskAsync(AppDbContext db, 		RepositoryTask task, CancellationToken cancellationToken, CancellationToken hostToken)
+		private async Task ProcessTaskAsync(AppDbContext db, RepositoryTask task, CancellationToken cancellationToken, CancellationToken hostToken)
 		{
-			List<string> userMessages = await db.Conversations
-				.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
-				.OrderBy(c => c.CreationDateTime)
-				.Select(c => c.Content)
-				.ToListAsync(cancellationToken);
-			bool isFollowUp = userMessages.Count > 1 && Directory.Exists(GetRepositoryFolder(task.Id));
-			string prompt = (isFollowUp ? userMessages[^1] : userMessages.FirstOrDefault()) ?? string.Empty;
-
 			string? response;
 			RepositoryTaskStatus finalStatus;
 			string? branchName = task.BranchName;
 			RunCost cost = new();
 			try
 			{
+				List<string> userMessages = await db.Conversations
+					.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
+					.OrderBy(c => c.CreationDateTime)
+					.Select(c => c.Content)
+					.ToListAsync(cancellationToken);
+				bool isFollowUp = userMessages.Count > 1 && Directory.Exists(GetRepositoryFolder(task.Id));
+				string prompt = (isFollowUp ? userMessages[^1] : userMessages.FirstOrDefault()) ?? string.Empty;
+
 				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cost, cancellationToken);
 				branchName = await FindCreatedBranchAsync(task, cancellationToken);
 
@@ -225,6 +230,16 @@ namespace AutoPilot.WebAPI.Services
 				// Cancelled by the user: the cost of the work done so far is still saved
 				finalStatus = RepositoryTaskStatus.Cancelled;
 				response = CancelledMessage;
+				try
+				{
+					// Best-effort and not cancellable, so a branch the agent already created is still persisted
+					branchName = await FindCreatedBranchAsync(task, CancellationToken.None) ?? branchName;
+				}
+				catch (Exception ex)
+				{
+					logger.LogWarning(ex, "Could not look up the branch of cancelled task {TaskId}", task.Id);
+				}
+
 				logger.LogInformation("Task {TaskId} was cancelled", task.Id);
 			}
 			catch (Exception ex) when (ex is not OperationCanceledException || !hostToken.IsCancellationRequested)
@@ -260,7 +275,7 @@ namespace AutoPilot.WebAPI.Services
 		}
 
 		// Guarded final write: only applies if this instance still owns the task (it may have been recovered as stale in the meantime)
-		private async Task FinalizeTaskAsync(AppDbContext db, RepositoryTask task, 		RepositoryTaskStatus status, string? branchName, string? message, decimal runCost)
+		private async Task FinalizeTaskAsync(AppDbContext db, RepositoryTask task, RepositoryTaskStatus status, string? branchName, string? message, decimal runCost)
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
 

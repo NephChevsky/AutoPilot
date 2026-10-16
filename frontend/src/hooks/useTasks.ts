@@ -139,13 +139,15 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
-  const cancelTask = async (taskId: string) => {
+  const cancelTask = async (taskId: string): Promise<boolean> => {
     try {
       const { data } = await api.post<RepositoryTask>(`/task/${taskId}/cancel`)
       setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
+      return true
     } catch (e) {
       const message = (e as { response?: { data?: unknown } }).response?.data
       toast.error(typeof message === 'string' ? message : 'Failed to cancel task')
+      return false
     }
   }
 
