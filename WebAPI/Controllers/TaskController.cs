@@ -22,7 +22,10 @@ namespace AutoPilot.WebAPI.Controllers
 			string Task,
 			RepositoryTaskStatus Status,
 			string? Response,
-			string? BranchName);
+			string? BranchName,
+			List<ConversationItemResponse> Conversation);
+
+		public record ConversationItemResponse(ConversationAuthor Author, string Content, DateTime CreationDateTime);
 
 		[HttpGet]
 		public async Task<IActionResult> GetTasks([FromQuery] Guid? repositoryId)
@@ -45,7 +48,8 @@ namespace AutoPilot.WebAPI.Controllers
 					t.Conversations.Where(c => c.Author == ConversationAuthor.Neph).OrderBy(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault() ?? string.Empty,
 					t.Status,
 					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot).OrderByDescending(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault(),
-					t.BranchName))
+					t.BranchName,
+					t.Conversations.OrderBy(c => c.CreationDateTime).Select(c => new ConversationItemResponse(c.Author, c.Content, c.CreationDateTime)).ToList()))
 				.ToListAsync();
 
 			return Ok(tasks);
@@ -84,10 +88,11 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName));
-		}
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName,
+							[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Content, c.CreationDateTime))]));
+					}
 
-		[HttpDelete("{id:guid}")]
+					[HttpDelete("{id:guid}")]
 		public async Task<IActionResult> DeleteTask(Guid id)
 		{
 			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
@@ -130,13 +135,14 @@ namespace AutoPilot.WebAPI.Controllers
 				.ExecuteDeleteAsync();
 			await dbContext.SaveChangesAsync();
 
-			string taskText = await dbContext.Conversations
-				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Neph)
+			List<ConversationItemResponse> conversation = await dbContext.Conversations
+				.Where(c => c.TaskId == id)
 				.OrderBy(c => c.CreationDateTime)
-				.Select(c => c.Content)
-				.FirstOrDefaultAsync() ?? string.Empty;
+				.Select(c => new ConversationItemResponse(c.Author, c.Content, c.CreationDateTime))
+				.ToListAsync();
+			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
 		}
 	}
 }
