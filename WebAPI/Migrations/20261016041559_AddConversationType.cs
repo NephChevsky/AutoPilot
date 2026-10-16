@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -15,7 +15,7 @@ namespace AutoPilot.WebAPI.Migrations
                 table: "conversations",
                 type: "text",
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "Message");
         }
 
         /// <inheritdoc />
