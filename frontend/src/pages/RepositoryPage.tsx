@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import api from '../api/axios'
-import CreateTaskDialog from '../components/CreateTaskDialog'
+import NewTaskCard from '../components/NewTaskCard'
 import TaskCard from '../components/TaskCard'
 import type { GithubRepository } from '../hooks/useRepositories'
 import { useTasks } from '../hooks/useTasks'
@@ -34,7 +34,9 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   }, [id])
 
   const handleCreate = async (title: string, text: string) => {
-    if (await createTask(title, text)) setCreatingTask(false)
+    const ok = await createTask(title, text)
+    if (ok) setCreatingTask(false)
+    return ok
   }
 
   if (loading) return <div className="page"><p>Loading...</p></div>
@@ -68,10 +70,11 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
       </div>
 
       <h2 className="section-title">Tasks</h2>
-      {tasks.length === 0 ? (
+      {tasks.length === 0 && !creatingTask ? (
         <div className="empty-state">No tasks yet. Create one to get started.</div>
       ) : (
         <ul className="task-list">
+          {creatingTask && <NewTaskCard onCreate={handleCreate} onCancel={() => setCreatingTask(false)} />}
           {tasks.map((task) => (
             <TaskCard
               key={task.id}
@@ -87,7 +90,6 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
           ))}
         </ul>
       )}
-      {creatingTask && <CreateTaskDialog onClose={() => setCreatingTask(false)} onCreate={handleCreate} />}
     </div>
   )
 }
