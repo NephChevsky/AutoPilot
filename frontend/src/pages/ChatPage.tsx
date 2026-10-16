@@ -90,11 +90,14 @@ function ChatConversation({ id }: { id: string | undefined }) {
           rows={3}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Ask a question... (Ctrl+Enter to send)"
+          placeholder="Ask a question... (Enter to send, Shift+Enter for new line)"
           disabled={loading}
           autoFocus
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send()
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              send()
+            }
           }}
         />
         <button className="btn-primary" disabled={!text.trim() || sending || loading} onClick={send}>
