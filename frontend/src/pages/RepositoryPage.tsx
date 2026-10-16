@@ -12,6 +12,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
+  const [now] = useState(() => new Date())
   const [toggled, setToggled] = useState<Set<string>>(new Set())
   const { tasks, createTask, updateTask, startTask, followUp, mergeTask, completeTask, cancelTask } = useTasks(id)
 
@@ -64,6 +65,13 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
       return next
     })
 
+  const totalCost = tasks.reduce((sum, t) => sum + (t.cost ?? 0), 0)
+  const monthlyCost = tasks.reduce((sum, t) => {
+    const d = new Date(t.completionDateTime ?? t.creationDateTime)
+    const inMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+    return inMonth ? sum + (t.cost ?? 0) : sum
+  }, 0)
+
   if (loading) return <div className="page"><p>Loading...</p></div>
   if (error || !repository) return <div className="page"><p>Repository not found.</p></div>
 
@@ -71,7 +79,9 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{repository.name}</h1>
-        <a
+                <span className="page-cost">
+                  Total: {totalCost.toFixed(2)} AIU · This month: {monthlyCost.toFixed(2)} AIU
+                </span>        <a
           className="page-link"
           href={repository.htmlUrl}
           target="_blank"
