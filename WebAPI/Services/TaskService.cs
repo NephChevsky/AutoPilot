@@ -91,7 +91,7 @@ namespace AutoPilot.WebAPI.Services
 				slug = slug[..50].TrimEnd('-');
 			}
 
-			return slug.Length == 0 ? $"task-{task.Id}" : $"autopilot/{slug}";
+			return $"autopilot/{(slug.Length == 0 ? task.Id : slug)}";
 		}
 
 		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, CancellationToken cancellationToken)
