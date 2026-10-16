@@ -14,6 +14,7 @@ const statusLabels: Record<TaskStatus, string> = {
   WaitingForMerge: 'Waiting for merge',
   Completed: 'Completed',
   Error: 'Error',
+  Cancelled: 'Cancelled',
 }
 
 interface DisplayItem extends ConversationItem {
@@ -74,10 +75,11 @@ interface TaskCardProps {
   onUpdate: (taskId: string, title: string, text: string) => Promise<boolean>
   onMerge: (taskId: string) => void
   onDelete: (taskId: string) => void
+  onCancel: (taskId: string) => void
   onFollowUp: (taskId: string, message: string) => Promise<boolean>
 }
 
-function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFollowUp }: TaskCardProps) {
+function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCancel, onFollowUp }: TaskCardProps) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
@@ -142,15 +144,18 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onFo
               Edit
             </button>
           )}
-          {(task.status === 'NotStarted' || task.status === 'Error') && (
+          {(task.status === 'NotStarted' || task.status === 'Error' || task.status === 'Cancelled') && (
             <button className="btn-primary" onClick={() => onStart(task.id)}>
-              {task.status === 'Error' ? 'Retry' : 'Start'}
+              {task.status === 'NotStarted' ? 'Start' : 'Retry'}
             </button>
+          )}
+          {(task.status === 'PendingStart' || task.status === 'Processing') && (
+            <ConfirmActionButton label="Cancel" onConfirm={() => onCancel(task.id)} />
           )}
           {task.status === 'WaitingForMerge' && task.branchName && (
             <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
           )}
-          {(task.status === 'NotStarted' || task.status === 'WaitingForMerge' || task.status === 'Completed' || task.status === 'Error') && (
+          {(task.status === 'NotStarted' || task.status === 'WaitingForMerge' || task.status === 'Completed' || task.status === 'Error' || task.status === 'Cancelled') && (
             <ConfirmActionButton onConfirm={() => onDelete(task.id)} />
           )}
         </div>

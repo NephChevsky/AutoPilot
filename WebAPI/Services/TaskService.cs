@@ -2,6 +2,7 @@ using AutoPilot.WebAPI.Database;
 using AutoPilot.WebAPI.Database.Models;
 using GitHub.Copilot;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -17,6 +18,9 @@ namespace AutoPilot.WebAPI.Services
 		private static readonly TimeSpan LeaseTimeout = TimeSpan.FromMinutes(2);
 		private static readonly Guid InstanceId = Guid.NewGuid();
 		private const string InterruptedMessage = "Task was interrupted (the worker stopped responding) and can be restarted.";
+		private const string CancelledMessage = "Task was cancelled.";
+		// Running tasks of this instance, so that a cancel request can stop the matching run
+		private static readonly ConcurrentDictionary<Guid, CancellationTokenSource> RunningTasks = new();
 		private const string CopilotModel = "claude-sonnet-5.5";
 		private const string CopilotReasoningEffort = "medium";
 		private const string OrchestratorAgent = "orchestrator";
@@ -52,6 +56,25 @@ namespace AutoPilot.WebAPI.Services
 					logger.LogError(ex, "Task processing failed");
 					await Task.Delay(PollInterval, stoppingToken);
 				}
+			}
+		}
+
+		// Requests cancellation of a task being processed by this instance; returns false if it is not running here
+		public static bool TryCancel(Guid taskId)
+		{
+			if (!RunningTasks.TryGetValue(taskId, out CancellationTokenSource? cts))
+			{
+				return false;
+			}
+
+			try
+			{
+				cts.Cancel();
+				return true;
+			}
+			catch (ObjectDisposedException)
+			{
+				return false;
 			}
 		}
 
@@ -135,23 +158,39 @@ namespace AutoPilot.WebAPI.Services
 				return false;
 			}
 
+			DateTime claimedAt = DateTime.UtcNow;
+			// Guarded claim: a task cancelled while pending must not be moved back to Processing
+			int claimed = await db.Tasks
+				.Where(t => t.Id == task.Id && t.Status == RepositoryTaskStatus.PendingStart)
+				.ExecuteUpdateAsync(s => s
+					.SetProperty(t => t.Status, RepositoryTaskStatus.Processing)
+					.SetProperty(t => t.ProcessingInstanceId, InstanceId)
+					.SetProperty(t => t.ProcessingProcessId, Environment.ProcessId)
+					.SetProperty(t => t.HeartbeatDateTime, claimedAt), cancellationToken);
+			if (claimed == 0)
+			{
+				return true;
+			}
+
 			task.Status = RepositoryTaskStatus.Processing;
 			task.ProcessingInstanceId = InstanceId;
 			task.ProcessingProcessId = Environment.ProcessId;
-			task.HeartbeatDateTime = DateTime.UtcNow;
-			await db.SaveChangesAsync(cancellationToken);
+			task.HeartbeatDateTime = claimedAt;
 
 			logger.LogInformation("Processing task {TaskId}", task.Id);
 
 			using CancellationTokenSource heartbeatCts = new();
+			using CancellationTokenSource taskCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+			RunningTasks[task.Id] = taskCts;
 			Task heartbeat = RunHeartbeatAsync(task.Id, heartbeatCts.Token);
 
 			try
 			{
-				await ProcessTaskAsync(db, task, cancellationToken);
+				await ProcessTaskAsync(db, task, taskCts.Token, cancellationToken);
 			}
 			finally
 			{
+				RunningTasks.TryRemove(task.Id, out _);
 				await heartbeatCts.CancelAsync();
 				await heartbeat;
 			}
@@ -159,7 +198,7 @@ namespace AutoPilot.WebAPI.Services
 			return true;
 		}
 
-		private async Task ProcessTaskAsync(AppDbContext db, RepositoryTask task, CancellationToken cancellationToken)
+		private async Task ProcessTaskAsync(AppDbContext db, 		RepositoryTask task, CancellationToken cancellationToken, CancellationToken hostToken)
 		{
 			List<string> userMessages = await db.Conversations
 				.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
@@ -181,7 +220,14 @@ namespace AutoPilot.WebAPI.Services
 				finalStatus = string.IsNullOrEmpty(branchName) ? RepositoryTaskStatus.Completed : RepositoryTaskStatus.WaitingForMerge;
 				logger.LogInformation("Completed task {TaskId}", task.Id);
 			}
-			catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+			catch (Exception) when (cancellationToken.IsCancellationRequested && !hostToken.IsCancellationRequested)
+			{
+				// Cancelled by the user: the cost of the work done so far is still saved
+				finalStatus = RepositoryTaskStatus.Cancelled;
+				response = CancelledMessage;
+				logger.LogInformation("Task {TaskId} was cancelled", task.Id);
+			}
+			catch (Exception ex) when (ex is not OperationCanceledException || !hostToken.IsCancellationRequested)
 			{
 				finalStatus = RepositoryTaskStatus.Error;
 				response = ex.ToString();
@@ -346,10 +392,28 @@ namespace AutoPilot.WebAPI.Services
 				}
 			});
 
-			AssistantMessageEvent? response = await session.SendAndWaitAsync(
-				new MessageOptions { Prompt = $"{prompt}{BuildBranchInstructions(task)}" },
-				ProcessingTimeout,
-				cancellationToken);
+			AssistantMessageEvent? response;
+			try
+			{
+				response = await session.SendAndWaitAsync(
+					new MessageOptions { Prompt = $"{prompt}{BuildBranchInstructions(task)}" },
+					ProcessingTimeout,
+					cancellationToken);
+			}
+			catch (OperationCanceledException)
+			{
+				// Make sure the agent process does not keep running (and spending) after a cancel
+				try
+				{
+					await client.ForceStopAsync();
+				}
+				catch (Exception ex)
+				{
+					logger.LogWarning(ex, "Could not stop the agent process of task {TaskId}", task.Id);
+				}
+
+				throw;
+			}
 
 			logger.LogInformation("Copilot response for task {TaskId}: {Response}", task.Id, response?.Data.Content);
 

@@ -321,6 +321,11 @@ textarea {
   color: #f87171;
 }
 
+.status-Cancelled {
+  background: rgba(139, 147, 167, 0.18);
+  color: #9aa3b8;
+}
+
 .markdown {
   margin-top: 8px;
   padding: 8px 12px;

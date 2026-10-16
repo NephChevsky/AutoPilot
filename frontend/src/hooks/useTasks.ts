@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import api from '../api/axios'
 
-export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'WaitingForMerge' | 'Completed' | 'Error'
+export type TaskStatus = 'NotStarted' | 'PendingStart' | 'Processing' | 'WaitingForMerge' | 'Completed' | 'Error' | 'Cancelled'
 
 export interface ConversationItem {
   author: 'Neph' | 'Autopilot'
@@ -139,5 +139,15 @@ export function useTasks(repositoryId: string | undefined) {
     }
   }
 
-  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, deleteTask }
+  const cancelTask = async (taskId: string) => {
+    try {
+      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/cancel`)
+      setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
+    } catch (e) {
+      const message = (e as { response?: { data?: unknown } }).response?.data
+      toast.error(typeof message === 'string' ? message : 'Failed to cancel task')
+    }
+  }
+
+  return { tasks, createTask, updateTask, startTask, followUp, mergeTask, deleteTask, cancelTask }
 }
