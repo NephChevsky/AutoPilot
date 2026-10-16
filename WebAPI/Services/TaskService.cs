@@ -136,7 +136,7 @@ namespace AutoPilot.WebAPI.Services
 				{
 					using IServiceScope scope = scopeFactory.CreateScope();
 					AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = evt.Data.Content });
+					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Type = ConversationType.Reasoning, Content = evt.Data.Content });
 					db.SaveChanges();
 				}
 				catch (Exception ex)

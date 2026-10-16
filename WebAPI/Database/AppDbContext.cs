@@ -91,6 +91,10 @@ namespace AutoPilot.WebAPI.Database
 					.HasConversion<string>()
 					.IsRequired();
 
+				entity.Property(e => e.Type)
+					.HasConversion<string>()
+					.IsRequired();
+
 				entity.Property(e => e.Content)
 					.IsRequired();
 

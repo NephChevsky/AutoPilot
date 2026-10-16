@@ -48,6 +48,11 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("task_id");
 
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("type");
+
                     b.HasKey("Id")
                         .HasName("pk_conversations");
 
