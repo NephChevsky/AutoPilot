@@ -33,6 +33,33 @@
   overflow-wrap: anywhere;
 }
 
+.chat-message.chat-markdown {
+  white-space: normal;
+}
+
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown pre {
+  padding: 8px;
+  overflow-x: auto;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+}
+
+.chat-markdown code {
+  font-size: 13px;
+}
+
+.chat-markdown img {
+  max-width: 100%;
+}
+
 .chat-message.user {
   align-self: flex-end;
   background: rgba(59, 130, 246, 0.16);

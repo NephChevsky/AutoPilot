@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useChats } from '../hooks/useChats'
 import type { ChatMessage } from '../hooks/useChats'
@@ -71,8 +72,8 @@ function ChatConversation({ id }: { id: string | undefined }) {
           <div className="chat-empty">Ask anything to start a conversation.</div>
         )}
         {messages.map((m) => (
-          <div key={m.id} className={`chat-message ${m.role === 'User' ? 'user' : 'assistant'}`}>
-            {m.content}
+          <div key={m.id} className={`chat-message ${m.role === 'User' ? 'user' : 'assistant chat-markdown'}`}>
+            {m.role === 'User' ? m.content : <Markdown>{m.content}</Markdown>}
           </div>
         ))}
         {pendingMessage !== null && (
