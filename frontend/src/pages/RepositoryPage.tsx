@@ -155,7 +155,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                       {task.status === 'Error' ? 'Retry' : 'Start'}
                     </button>
                   )}
-                  {(task.status === 'Completed' || task.status === 'Error') && (
+                  {                  (task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
                     <button className="btn-primary" onClick={() => deleteTask(task.id)}>
                       Delete
                     </button>

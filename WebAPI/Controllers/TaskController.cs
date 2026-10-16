@@ -96,9 +96,9 @@ namespace AutoPilot.WebAPI.Controllers
 				return NotFound();
 			}
 
-			if (task.Status is not (RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
+			if (task.Status is not 			(RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
 			{
-				return Conflict("Only completed or failed tasks can be deleted.");
+							return Conflict("Only unstarted, completed or failed tasks can be deleted.");
 			}
 
 			await dbContext.Conversations.Where(c => c.TaskId == id).ExecuteDeleteAsync();
