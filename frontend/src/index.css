@@ -196,6 +196,8 @@ a {
 
 .delete-btn {
   min-width: 92px;
+  justify-content: center;
+  text-align: center;
   overflow: hidden;
 }
 
