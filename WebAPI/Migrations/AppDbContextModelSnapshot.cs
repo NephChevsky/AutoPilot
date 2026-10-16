@@ -114,6 +114,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("BranchName")
+                        .HasColumnType("text")
+                        .HasColumnName("branch_name");
+
                     b.Property<DateTime?>("CompletionDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completion_date_time");
