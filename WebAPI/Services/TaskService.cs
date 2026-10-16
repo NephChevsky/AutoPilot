@@ -109,6 +109,22 @@ namespace AutoPilot.WebAPI.Services
 			return $"autopilot/{(slug.Length == 0 ? task.Id : slug)}";
 		}
 
+		private static List<CustomAgentConfig> LoadAgents() =>
+		[
+			LoadAgent("orchestrator", "Orchestrator", "Plans the task, delegates implementation to the developer and review to the reviewer, and makes the final decision."),
+			LoadAgent("developer", "Developer", "Implements the assigned task in the codebase."),
+			LoadAgent("reviewer", "Reviewer", "Independently reviews code changes and reports findings without modifying code."),
+		];
+
+		private static CustomAgentConfig LoadAgent(string name, string displayName, string description) => new()
+		{
+			Name = name,
+			DisplayName = displayName,
+			Description = description,
+			Prompt = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Agents", $"{name}.md")),
+			Infer = true,
+		};
+
 		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, bool isFollowUp, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]
@@ -130,6 +146,8 @@ namespace AutoPilot.WebAPI.Services
 					Model = "claude-sonnet-5.5",
 					ReasoningEffort = "medium",
 					WorkingDirectory = workingDirectory,
+					CustomAgents = LoadAgents(),
+					Agent = "orchestrator",
 					OnPermissionRequest = PermissionHandler.ApproveAll
 				}, cancellationToken)
 				: await client.CreateSessionAsync(new SessionConfig
@@ -138,6 +156,8 @@ namespace AutoPilot.WebAPI.Services
 					Model = "claude-sonnet-5.5",
 					ReasoningEffort = "medium",
 					WorkingDirectory = workingDirectory,
+					CustomAgents = LoadAgents(),
+					Agent = "orchestrator",
 					OnPermissionRequest = PermissionHandler.ApproveAll
 				});
 
