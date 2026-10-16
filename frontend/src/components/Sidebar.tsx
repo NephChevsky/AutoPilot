@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useRepositories } from '../hooks/useRepositories'
 import { useAuthStore } from '../store/authStore'
 import './Sidebar.css'
@@ -15,7 +15,7 @@ function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-title">AutoPilot</div>
+      <Link className="sidebar-title" to="/">AutoPilot</Link>
 
       <nav className="sidebar-section">
         <div className="sidebar-section-header">
