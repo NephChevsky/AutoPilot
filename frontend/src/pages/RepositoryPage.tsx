@@ -6,6 +6,7 @@ import TaskCard from '../components/TaskCard'
 import type { GithubRepository } from '../hooks/useRepositories'
 import { useTasks } from '../hooks/useTasks'
 import type { RepositoryTask, TaskStatus } from '../hooks/useTasks'
+import { computeCosts, formatCosts } from '../utils/cost'
 
 function RepositoryDetails({ id }: { id: string | undefined }) {
   const [repository, setRepository] = useState<GithubRepository | null>(null)
@@ -65,12 +66,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
       return next
     })
 
-  const totalCost = tasks.reduce((sum, t) => sum + (t.cost ?? 0), 0)
-  const monthlyCost = tasks.reduce((sum, t) => {
-    const d = new Date(t.completionDateTime ?? t.creationDateTime)
-    const inMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
-    return inMonth ? sum + (t.cost ?? 0) : sum
-  }, 0)
+  const costs = computeCosts(tasks, now)
 
   if (loading) return <div className="page"><p>Loading...</p></div>
   if (error || !repository) return <div className="page"><p>Repository not found.</p></div>
@@ -93,9 +89,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
             <path d="M10 14 21 3" />
           </svg>
         </a>
-        <span className="page-cost">
-          Total: {totalCost.toFixed(2)} AIU · This month: {monthlyCost.toFixed(2)} AIU
-        </span>
+        <span className="page-cost">{formatCosts(costs)}</span>
         <button className="btn-primary" onClick={() => setCreatingTask(true)}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14" />
