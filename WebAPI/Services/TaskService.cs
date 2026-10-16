@@ -13,6 +13,7 @@ namespace AutoPilot.WebAPI.Services
 		private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 		private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromMinutes(30);
 		private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
+		// Compared against heartbeats written by other hosts (recovering host's clock vs. writing host's clock), so clocks are assumed to be roughly synchronized
 		private static readonly TimeSpan LeaseTimeout = TimeSpan.FromMinutes(2);
 		private static readonly Guid InstanceId = Guid.NewGuid();
 		private const string InterruptedMessage = "Task was interrupted (the worker stopped responding) and can be restarted.";
@@ -26,7 +27,14 @@ namespace AutoPilot.WebAPI.Services
 			{
 				try
 				{
-					await RecoverStaleTasksAsync(stoppingToken);
+					try
+					{
+						await RecoverStaleTasksAsync(stoppingToken);
+					}
+					catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+					{
+						logger.LogError(ex, "Stale task recovery failed");
+					}
 
 					bool processed = await ProcessNextAsync(stoppingToken);
 
@@ -53,13 +61,15 @@ namespace AutoPilot.WebAPI.Services
 			AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
 			DateTime cutoff = DateTime.UtcNow - LeaseTimeout;
-			List<Guid> staleIds = await db.Tasks
+			var staleTasks = await db.Tasks
 				.Where(t => t.Status == RepositoryTaskStatus.Processing && (t.HeartbeatDateTime == null || t.HeartbeatDateTime < cutoff))
-				.Select(t => t.Id)
+				.Select(t => new { t.Id, t.ProcessingInstanceId, t.ProcessingProcessId })
 				.ToListAsync(cancellationToken);
 
-			foreach (Guid taskId in staleIds)
+			foreach (var stale in staleTasks)
 			{
+				Guid taskId = stale.Id;
+				await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 				// The predicate is repeated so that only one instance recovers a given task
 				int updated = await db.Tasks
 					.Where(t => t.Id == taskId && t.Status == RepositoryTaskStatus.Processing && (t.HeartbeatDateTime == null || t.HeartbeatDateTime < cutoff))
@@ -77,7 +87,8 @@ namespace AutoPilot.WebAPI.Services
 
 				db.Conversations.Add(new Conversation { TaskId = taskId, Author = ConversationAuthor.Autopilot, Content = InterruptedMessage });
 				await db.SaveChangesAsync(cancellationToken);
-				logger.LogWarning("Recovered stale task {TaskId}", taskId);
+				await transaction.CommitAsync(cancellationToken);
+				logger.LogWarning("Recovered stale task {TaskId} (instance {ProcessingInstanceId}, process {ProcessingProcessId})", taskId, stale.ProcessingInstanceId, stale.ProcessingProcessId);
 			}
 		}
 
@@ -150,7 +161,6 @@ namespace AutoPilot.WebAPI.Services
 
 		private async Task ProcessTaskAsync(AppDbContext db, RepositoryTask task, CancellationToken cancellationToken)
 		{
-
 			List<string> userMessages = await db.Conversations
 				.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
 				.OrderBy(c => c.CreationDateTime)
@@ -160,17 +170,19 @@ namespace AutoPilot.WebAPI.Services
 			string prompt = (isFollowUp ? userMessages[^1] : userMessages.FirstOrDefault()) ?? string.Empty;
 
 			string? response;
+			RepositoryTaskStatus finalStatus;
+			string? branchName = task.BranchName;
 			try
 			{
 				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cancellationToken);
-				task.BranchName = await FindCreatedBranchAsync(task, cancellationToken);
+				branchName = await FindCreatedBranchAsync(task, cancellationToken);
 
-				task.Status = RepositoryTaskStatus.Completed;
+				finalStatus = RepositoryTaskStatus.Completed;
 				logger.LogInformation("Completed task {TaskId}", task.Id);
 			}
 			catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
 			{
-				task.Status = RepositoryTaskStatus.Error;
+				finalStatus = RepositoryTaskStatus.Error;
 				response = ex.ToString();
 				logger.LogError(ex, "Task {TaskId} failed", task.Id);
 			}
@@ -179,11 +191,7 @@ namespace AutoPilot.WebAPI.Services
 				// Host is stopping: leave the task restartable instead of stuck in Processing
 				try
 				{
-					task.Status = RepositoryTaskStatus.Error;
-					task.CompletionDateTime = DateTime.UtcNow;
-					ClearProcessingFields(task);
-					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = InterruptedMessage });
-					await db.SaveChangesAsync(CancellationToken.None);
+					await FinalizeTaskAsync(db, task, RepositoryTaskStatus.Error, task.BranchName, InterruptedMessage);
 				}
 				catch (Exception saveEx)
 				{
@@ -193,17 +201,9 @@ namespace AutoPilot.WebAPI.Services
 				throw;
 			}
 
-			if (response is not null)
-			{
-				db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = response });
-			}
-
-			task.CompletionDateTime = DateTime.UtcNow;
-			ClearProcessingFields(task);
-
 			try
 			{
-				await db.SaveChangesAsync(CancellationToken.None);
+				await FinalizeTaskAsync(db, task, finalStatus, branchName, response);
 			}
 			catch (Exception ex)
 			{
@@ -212,13 +212,37 @@ namespace AutoPilot.WebAPI.Services
 			}
 		}
 
-		private static void ClearProcessingFields(RepositoryTask task)
+		// Guarded final write: only applies if this instance still owns the task (it may have been recovered as stale in the meantime)
+		private async Task FinalizeTaskAsync(AppDbContext db, RepositoryTask task, RepositoryTaskStatus status, string? branchName, string? message)
 		{
-			task.ProcessingInstanceId = null;
-			task.ProcessingProcessId = null;
-			task.HeartbeatDateTime = null;
-		}
+			await using var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
 
+			DateTime completionDateTime = DateTime.UtcNow;
+			int updated = await db.Tasks
+				.Where(t => t.Id == task.Id && t.Status == RepositoryTaskStatus.Processing && t.ProcessingInstanceId == InstanceId)
+				.ExecuteUpdateAsync(s => s
+					.SetProperty(t => t.Status, status)
+					.SetProperty(t => t.BranchName, branchName)
+					.SetProperty(t => t.CompletionDateTime, completionDateTime)
+					.SetProperty(t => t.ProcessingInstanceId, (Guid?)null)
+					.SetProperty(t => t.ProcessingProcessId, (int?)null)
+					.SetProperty(t => t.HeartbeatDateTime, (DateTime?)null), CancellationToken.None);
+
+			if (updated == 0)
+			{
+				logger.LogWarning("Task {TaskId} is no longer owned by this instance (it was likely recovered as stale); skipping final update", task.Id);
+				return;
+			}
+
+			if (message is not null)
+			{
+				db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = message });
+				await db.SaveChangesAsync(CancellationToken.None);
+			}
+
+			await transaction.CommitAsync(CancellationToken.None);
+			logger.LogInformation("Finalized task {TaskId} as {Status}", task.Id, status);
+		}
 		private static string BuildBranchInstructions(RepositoryTask task) =>
 			$"\n\nIf you modify any code, do not commit to the default branch: create a new branch named `{BuildBranchName(task)}`, commit your changes to it, and push that branch to the remote.";
 
