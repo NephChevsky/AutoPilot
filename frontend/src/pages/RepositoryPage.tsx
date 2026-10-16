@@ -133,16 +133,6 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                 <div>
                   {task.title && <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.title}</div>}
                   <div style={{ whiteSpace: 'pre-wrap' }}>{task.task}</div>
-                  {task.branchName && (
-                    <a
-                      href={`${repository.htmlUrl}/tree/${task.branchName.split('/').map(encodeURIComponent).join('/')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ display: 'inline-block', marginTop: 6, fontSize: 13 }}
-                    >
-                      Branch: {task.branchName}
-                    </a>
-                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                   <span className={`status-label status-${task.status}`}>
@@ -176,8 +166,17 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   <Markdown>{task.response}</Markdown>
                 </div>
               )}
-              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
-                {new Date(task.creationDateTime).toLocaleString()}
+              <div style={{ marginTop: 6, fontSize: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <span style={{ opacity: 0.6 }}>{new Date(task.creationDateTime).toLocaleString()}</span>
+                {task.branchName && (
+                  <a
+                    href={`${repository.htmlUrl}/tree/${task.branchName.split('/').map(encodeURIComponent).join('/')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Branch: {task.branchName}
+                  </a>
+                )}
               </div>
             </li>
           ))}
