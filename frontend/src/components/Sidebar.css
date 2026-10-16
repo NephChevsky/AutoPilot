@@ -124,6 +124,25 @@
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.sidebar-leds {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+}
+
+.sidebar-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sidebar-led.white { background: #f5f7fa; box-shadow: 0 0 4px rgba(245, 247, 250, 0.6); }
+.sidebar-led.yellow { background: #facc15; box-shadow: 0 0 4px rgba(250, 204, 21, 0.6); }
+.sidebar-led.green { background: #22c55e; box-shadow: 0 0 4px rgba(34, 197, 94, 0.6); }
+.sidebar-led.red { background: #ef4444; box-shadow: 0 0 4px rgba(239, 68, 68, 0.6); }
+
 .sidebar-pin {
   display: flex;
   margin-right: 6px;

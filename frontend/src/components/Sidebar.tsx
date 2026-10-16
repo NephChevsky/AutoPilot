@@ -1,10 +1,19 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useRepositories } from '../hooks/useRepositories'
+import { useRepositoryStatuses, type LedKind } from '../hooks/useRepositoryStatuses'
 import { useAuthStore } from '../store/authStore'
 import './Sidebar.css'
 
+const LED_LABELS: Record<LedKind, string> = {
+  white: 'Task not started',
+  yellow: 'Task pending',
+  green: 'Task waiting for review',
+  red: 'Task in error',
+}
+
 function Sidebar() {
   const { repositories, loading, error, refreshing, refresh, setPinned } = useRepositories()
+  const leds = useRepositoryStatuses()
   const logout = useAuthStore((state) => state.logout)
   const navigate = useNavigate()
 
@@ -48,6 +57,19 @@ function Sidebar() {
               >
                 {repo.name}
               </NavLink>
+              {(leds[repo.id] ?? []).length > 0 && (
+                <span className="sidebar-leds">
+                  {leds[repo.id].map((kind) => (
+                    <span
+                      key={kind}
+                      className={`sidebar-led ${kind}`}
+                      role="img"
+                      title={LED_LABELS[kind]}
+                      aria-label={LED_LABELS[kind]}
+                    />
+                  ))}
+                </span>
+              )}
               <button
                 className="sidebar-pin"
                 onClick={() => setPinned(repo.id, !repo.pinned)}
