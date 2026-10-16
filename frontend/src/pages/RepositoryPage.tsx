@@ -23,6 +23,7 @@ interface RepositoryTask {
 
 interface ConversationItem {
   author: 'Neph' | 'Autopilot'
+  type: 'Message' | 'Reasoning'
   content: string
   creationDateTime: string
 }
@@ -169,6 +170,13 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
               {task.conversation.slice(1).map((item, index, items) =>
                 item.author === 'Autopilot' && task.status === 'Error' && index === items.length - 1 ? (
                   <pre key={index} className="task-error">{item.content}</pre>
+                ) : item.author === 'Autopilot' && item.type === 'Reasoning' && task.status === 'Completed' ? (
+                  <details key={index} className="reasoning-fold">
+                    <summary>Show reasoning</summary>
+                    <div className="markdown">
+                      <Markdown>{item.content}</Markdown>
+                    </div>
+                  </details>
                 ) : item.author === 'Autopilot' ? (
                   <div key={index} className="markdown">
                     <Markdown>{item.content}</Markdown>

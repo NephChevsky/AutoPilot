@@ -146,6 +146,17 @@ a {
   color: #f87171;
 }
 
+.reasoning-fold {
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.reasoning-fold summary {
+  cursor: pointer;
+  user-select: none;
+}
+
 .task-meta {
   display: flex;
   flex-wrap: wrap;
