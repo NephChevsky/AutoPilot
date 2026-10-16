@@ -92,11 +92,11 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, 			task.Status, null, task.BranchName,
-							[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
-					}
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName,
+				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
+		}
 
-					[HttpDelete("{id:guid}")]
+		[HttpDelete("{id:guid}")]
 		public async Task<IActionResult> DeleteTask(Guid id)
 		{
 			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
@@ -107,7 +107,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 			if (task.Status is not (RepositoryTaskStatus.NotStarted or RepositoryTaskStatus.Completed or RepositoryTaskStatus.Error))
 			{
-							return Conflict("Only unstarted, completed or failed tasks can be deleted.");
+				return Conflict("Only unstarted, completed or failed tasks can be deleted.");
 			}
 
 			if (!string.IsNullOrEmpty(task.BranchName))
@@ -120,7 +120,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 				if (!string.IsNullOrWhiteSpace(token) && githubId is not null)
 				{
-					GitHubClient client = new(new ProductHeaderValue("AutoPilot")) { Credentials = new Credentials(token) };
+									GitHubClient client = CreateGithubClient(token);
 					try
 					{
 						await client.Git.Reference.Delete(githubId.Value, $"heads/{task.BranchName}");
@@ -173,7 +173,7 @@ namespace AutoPilot.WebAPI.Controllers
 				return StatusCode(StatusCodes.Status500InternalServerError, "GitHub integration is not configured.");
 			}
 
-			GitHubClient client = new(new ProductHeaderValue("AutoPilot")) { Credentials = new Credentials(token) };
+			GitHubClient client = CreateGithubClient(token);
 			try
 			{
 				await client.Repository.Merging.Create(repository.GithubId, new NewMerge(repository.DefaultBranch, task.BranchName));
@@ -204,14 +204,7 @@ namespace AutoPilot.WebAPI.Controllers
 			task.BranchName = null;
 			await dbContext.SaveChangesAsync();
 
-			List<ConversationItemResponse> conversation = await dbContext.Conversations
-				.Where(c => c.TaskId == id)
-				.OrderBy(c => c.CreationDateTime)
-				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
-				.ToListAsync();
-			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
-
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
+			return Ok(await BuildTaskResponseAsync(task));
 		}
 
 		[HttpPost("{id:guid}/follow-up")]
@@ -238,14 +231,7 @@ namespace AutoPilot.WebAPI.Controllers
 			task.CompletionDateTime = null;
 			await dbContext.SaveChangesAsync();
 
-			List<ConversationItemResponse> conversation = await dbContext.Conversations
-				.Where(c => c.TaskId == id)
-				.OrderBy(c => c.CreationDateTime)
-				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
-				.ToListAsync();
-			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
-
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
+			return Ok(await BuildTaskResponseAsync(task));
 		}
 
 		[HttpPost("{id:guid}/start")]
@@ -274,14 +260,22 @@ namespace AutoPilot.WebAPI.Controllers
 				.ExecuteDeleteAsync();
 			await dbContext.SaveChangesAsync();
 
+			return Ok(await BuildTaskResponseAsync(task));
+		}
+
+		private async Task<TaskResponse> BuildTaskResponseAsync(RepositoryTask task)
+		{
 			List<ConversationItemResponse> conversation = await dbContext.Conversations
-				.Where(c => c.TaskId == id)
+				.Where(c => c.TaskId == task.Id)
 				.OrderBy(c => c.CreationDateTime)
 				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
 				.ToListAsync();
 			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
+			return new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation);
 		}
+
+		private static GitHubClient CreateGithubClient(string token) =>
+			new(new ProductHeaderValue("AutoPilot")) { Credentials = new Credentials(token) };
 	}
 }

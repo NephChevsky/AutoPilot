@@ -1,224 +1,17 @@
 import { useEffect, useState } from 'react'
-import toast from 'react-hot-toast'
-import Markdown from 'react-markdown'
 import { useParams } from 'react-router-dom'
 import api from '../api/axios'
 import CreateTaskDialog from '../components/CreateTaskDialog'
+import TaskCard from '../components/TaskCard'
 import type { GithubRepository } from '../hooks/useRepositories'
-
-const encodeBranch = (name: string) => name.split('/').map(encodeURIComponent).join('/')
-
-interface RepositoryTask {
-  id: string
-  repositoryId: string
-  creationDateTime: string
-  completionDateTime: string | null
-  title: string
-  task: string
-  status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
-  response: string | null
-  branchName: string | null
-  conversation: ConversationItem[]
-}
-
-interface ConversationItem {
-  author: 'Neph' | 'Autopilot'
-  type: 'Message' | 'Reasoning'
-  content: string
-  creationDateTime: string
-}
-
-// Collapses neighboring reasoning items into one block when reasoning is folded
-function mergeReasoning(items: ConversationItem[], status: RepositoryTask['status']): ConversationItem[] {
-  if (status !== 'Completed') return items
-  return items.reduce<ConversationItem[]>((merged, item) => {
-    const last = merged[merged.length - 1]
-    if (last && last.type === 'Reasoning' && item.type === 'Reasoning' && last.author === item.author) {
-      merged[merged.length - 1] = { ...last, content: `${last.content}\n\n${item.content}` }
-    } else {
-      merged.push(item)
-    }
-    return merged
-  }, [])
-}
-
-const statusLabels: Record<RepositoryTask['status'], string> = {
-  NotStarted: 'Not started',
-  PendingStart: 'Pending start',
-  Processing: 'Processing',
-  Completed: 'Completed',
-  Error: 'Error',
-}
-
-const CONFIRM_ARM_DELAY_MS = 600
-const CONFIRM_TIMEOUT_MS = 4000
-
-function DeleteButton({
-  onConfirm,
-  label = 'Delete',
-  className = 'btn-secondary danger',
-}: {
-  onConfirm: () => void
-  label?: string
-  className?: string
-}) {
-  const [state, setState] = useState<'idle' | 'arming' | 'armed'>('idle')
-
-  useEffect(() => {
-    if (state === 'arming') {
-      const timer = setTimeout(() => setState('armed'), CONFIRM_ARM_DELAY_MS)
-      return () => clearTimeout(timer)
-    }
-    if (state === 'armed') {
-      const timer = setTimeout(() => setState('idle'), CONFIRM_TIMEOUT_MS)
-      return () => clearTimeout(timer)
-    }
-  }, [state])
-
-  return (
-    <button
-      className={`${className} delete-btn${state === 'idle' ? '' : ' confirming'}${state === 'arming' ? ' arming' : ''}`}
-      onClick={() => (state === 'idle' ? setState('arming') : state === 'armed' && onConfirm())}
-      onBlur={() => setState('idle')}
-    >
-      <span className="delete-btn-label" key={state === 'idle' ? 'delete' : 'confirm'}>
-              {state === 'idle' ? label : 'Confirm?'}
-      </span>
-    </button>
-  )
-}
-
-function FollowUpForm({ onSubmit }: { onSubmit: (message: string) => Promise<boolean> }) {
-  const [message, setMessage] = useState('')
-  const [sending, setSending] = useState(false)
-
-  const submit = async () => {
-    if (!message.trim() || sending) return
-    setSending(true)
-    const ok = await onSubmit(message.trim())
-    setSending(false)
-    if (ok) setMessage('')
-  }
-
-  return (
-    <div className="follow-up">
-      <textarea
-        className="follow-up-input"
-        rows={3}
-        placeholder="Propose changes..."
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
-        }}
-      />
-      <button className="btn-primary" disabled={!message.trim() || sending} onClick={submit}>
-        Send
-      </button>
-    </div>
-  )
-}
+import { useTasks } from '../hooks/useTasks'
 
 function RepositoryDetails({ id }: { id: string | undefined }) {
   const [repository, setRepository] = useState<GithubRepository | null>(null)
-  const [tasks, setTasks] = useState<RepositoryTask[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-
-    api
-      .get<RepositoryTask[]>('/task', { params: { repositoryId: id } })
-      .then(({ data }) => {
-        if (!cancelled) setTasks(data)
-      })
-      .catch(() => {
-        if (!cancelled) toast.error('Failed to load tasks')
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [id])
-
-  const hasActiveTask = tasks.some((t) => t.status === 'PendingStart' || t.status === 'Processing')
-
-  useEffect(() => {
-    if (!hasActiveTask) return
-    let cancelled = false
-
-    const interval = setInterval(() => {
-      api
-        .get<RepositoryTask[]>('/task', { params: { repositoryId: id } })
-        .then(({ data }) => {
-          if (cancelled) return
-          setTasks((current) =>
-            data.map((t) => {
-              const existing = current.find((c) => c.id === t.id)
-              return existing && t.response === undefined ? { ...t, response: existing.response } : t
-            }),
-          )
-        })
-        .catch(() => {})
-    }, 3000)
-
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [id, hasActiveTask])
-
-  const createTask = async (title: string, text: string) => {
-    try {
-      const { data } = await api.post<RepositoryTask>('/task', { repositoryId: id, title, task: text })
-      setTasks((current) => [data, ...current])
-      setCreatingTask(false)
-    } catch {
-      toast.error('Failed to create task')
-    }
-  }
-
-  const startTask = async (taskId: string) => {
-    try {
-      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/start`)
-      setTasks((current) => current.map((t) => (t.id === data.id ? data : t)))
-    } catch {
-      toast.error('Failed to start task')
-    }
-  }
-
-  const followUp = async (taskId: string, message: string) => {
-    try {
-      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/follow-up`, { message })
-      setTasks((current) => current.map((t) => (t.id === data.id ? data : t)))
-      return true
-    } catch {
-      toast.error('Failed to send changes')
-      return false
-    }
-  }
-
-  const mergeTask = async (taskId: string) => {
-    try {
-      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/merge`)
-      setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
-      toast.success('Branch merged')
-    } catch (e) {
-      const message = (e as { response?: { data?: unknown } }).response?.data
-      toast.error(typeof message === 'string' ? message : 'Failed to merge branch')
-    }
-  }
-
-  const deleteTask = async (taskId: string) => {
-    try {
-      await api.delete(`/task/${taskId}`)
-      setTasks((current) => current.filter((t) => t.id !== taskId))
-    } catch {
-      toast.error('Failed to delete task')
-    }
-  }
+  const { tasks, createTask, startTask, followUp, mergeTask, deleteTask } = useTasks(id)
 
   useEffect(() => {
     let cancelled = false
@@ -239,6 +32,10 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
       cancelled = true
     }
   }, [id])
+
+  const handleCreate = async (title: string, text: string) => {
+    if (await createTask(title, text)) setCreatingTask(false)
+  }
 
   if (loading) return <div className="page"><p>Loading...</p></div>
   if (error || !repository) return <div className="page"><p>Repository not found.</p></div>
@@ -276,70 +73,19 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
       ) : (
         <ul className="task-list">
           {tasks.map((task) => (
-            <li key={task.id} className="task-card">
-              <div className="task-head">
-                <div>
-                  {task.title && <div className="task-title">{task.title}</div>}
-                  <div className="task-text">{task.task}</div>
-                </div>
-                <div className="task-actions">
-                  <span className={`status-label status-${task.status}`}>
-                    {statusLabels[task.status]}
-                  </span>
-                  {(task.status === 'NotStarted' || task.status === 'Error') && (
-                    <button className="btn-primary" onClick={() => startTask(task.id)}>
-                      {task.status === 'Error' ? 'Retry' : 'Start'}
-                    </button>
-                  )}
-                  {task.status === 'Completed' && task.branchName && (
-                    <DeleteButton label="Merge" className="btn-primary" onConfirm={() => mergeTask(task.id)} />
-                  )}
-                  {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
-                    <DeleteButton onConfirm={() => deleteTask(task.id)} />
-                  )}
-                </div>
-              </div>
-              {mergeReasoning(task.conversation.slice(1), task.status).map((item, index, items) =>
-                item.author === 'Autopilot' && task.status === 'Error' && index === items.length - 1 ? (
-                  <pre key={index} className="task-error">{item.content}</pre>
-                ) : item.author === 'Autopilot' && item.type === 'Reasoning' && task.status === 'Completed' ? (
-                  <details key={index} className="reasoning-fold">
-                    <summary>Show reasoning</summary>
-                    <div className="markdown">
-                      <Markdown>{item.content}</Markdown>
-                    </div>
-                  </details>
-                ) : item.author === 'Autopilot' ? (
-                  <div key={index} className="markdown">
-                    <Markdown>{item.content}</Markdown>
-                  </div>
-                ) : (
-                  <div key={index} className="task-text">{item.content}</div>
-                ),
-              )}
-              {task.status === 'Completed' && <FollowUpForm onSubmit={(message) => followUp(task.id, message)} />}
-              <div className="task-meta">
-                <span>{new Date(task.creationDateTime).toLocaleString()}</span>
-                {task.branchName && (
-                  <a
-                    href={`${repository.htmlUrl}/compare/${encodeBranch(repository.defaultBranch || 'master')}...${encodeBranch(task.branchName)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Branch: {task.branchName}
-                  </a>
-                )}
-              </div>
-            </li>
+            <TaskCard
+              key={task.id}
+              task={task}
+              repository={repository}
+              onStart={startTask}
+              onMerge={mergeTask}
+              onDelete={deleteTask}
+              onFollowUp={followUp}
+            />
           ))}
         </ul>
       )}
-      {creatingTask && (
-        <CreateTaskDialog
-          onClose={() => setCreatingTask(false)}
-          onCreate={createTask}
-        />
-      )}
+      {creatingTask && <CreateTaskDialog onClose={() => setCreatingTask(false)} onCreate={handleCreate} />}
     </div>
   )
 }
