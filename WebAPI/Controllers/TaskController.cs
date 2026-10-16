@@ -146,6 +146,72 @@ namespace AutoPilot.WebAPI.Controllers
 			return NoContent();
 		}
 
+		[HttpPost("{id:guid}/merge")]
+		public async Task<IActionResult> MergeTask(Guid id)
+		{
+			RepositoryTask? task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id);
+			if (task is null)
+			{
+				return NotFound();
+			}
+
+			if (task.Status != RepositoryTaskStatus.Completed || string.IsNullOrEmpty(task.BranchName))
+			{
+				return Conflict("Only completed tasks with a branch can be merged.");
+			}
+
+			string? token = configuration["Github:Token"];
+			var repository = await dbContext.Repositories
+				.Where(r => r.Id == task.RepositoryId)
+				.Select(r => new { r.GithubId, r.DefaultBranch })
+				.FirstOrDefaultAsync();
+
+			if (string.IsNullOrWhiteSpace(token) || repository is null)
+			{
+				return StatusCode(StatusCodes.Status500InternalServerError, "GitHub integration is not configured.");
+			}
+
+			GitHubClient client = new(new ProductHeaderValue("AutoPilot")) { Credentials = new Credentials(token) };
+			try
+			{
+				await client.Repository.Merging.Create(repository.GithubId, new NewMerge(repository.DefaultBranch, task.BranchName));
+			}
+			catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+			{
+				return Conflict("The branch could not be merged automatically because of conflicts.");
+			}
+			catch (NotFoundException)
+			{
+				return NotFound("Branch or repository not found on GitHub.");
+			}
+			catch (Exception ex)
+			{
+				logger.LogError(ex, "Could not merge branch {Branch} for task {TaskId}", task.BranchName, id);
+				return StatusCode(StatusCodes.Status502BadGateway, "Could not merge the task branch.");
+			}
+
+			try
+			{
+				await client.Git.Reference.Delete(repository.GithubId, $"heads/{task.BranchName}");
+			}
+			catch (Exception ex)
+			{
+				logger.LogWarning(ex, "Merged but could not delete branch {Branch} for task {TaskId}", task.BranchName, id);
+			}
+
+			task.BranchName = null;
+			await dbContext.SaveChangesAsync();
+
+			List<ConversationItemResponse> conversation = await dbContext.Conversations
+				.Where(c => c.TaskId == id)
+				.OrderBy(c => c.CreationDateTime)
+				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
+				.ToListAsync();
+			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
+
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, conversation));
+		}
+
 		[HttpPost("{id:guid}/start")]
 		public async Task<IActionResult> StartTask(Guid id)
 		{
