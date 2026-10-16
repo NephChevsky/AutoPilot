@@ -28,14 +28,14 @@ function mergeReasoning(items: ConversationItem[], status: TaskStatus): Conversa
   }, [])
 }
 
-function ConversationEntry({ item, status, isLast }: { item: ConversationItem; status: TaskStatus; isLast: boolean }) {
+function ConversationEntry({ item, status, isLast, isLastReasoning }: { item: ConversationItem; status: TaskStatus; isLast: boolean; isLastReasoning: boolean }) {
   if (item.author !== 'Autopilot') {
     return <div className="task-text">{item.content}</div>
   }
   if (status === 'Error' && isLast) {
     return <pre className="task-error">{item.content}</pre>
   }
-  if (item.type === 'Reasoning' && (status === 'Completed' || !isLast)) {
+  if (item.type === 'Reasoning' && (status === 'Completed' || !isLastReasoning)) {
     return (
       <details className="reasoning-fold">
         <summary>Show reasoning</summary>
@@ -63,6 +63,7 @@ interface TaskCardProps {
 
 function TaskCard({ task, repository, onStart, onMerge, onDelete, onFollowUp }: TaskCardProps) {
   const conversation = mergeReasoning(task.conversation.slice(1), task.status)
+  const lastReasoningIndex = conversation.findLastIndex((item) => item.author === 'Autopilot' && item.type === 'Reasoning')
 
   return (
     <li className="task-card">
@@ -87,7 +88,13 @@ function TaskCard({ task, repository, onStart, onMerge, onDelete, onFollowUp }: 
         </div>
       </div>
       {conversation.map((item, index) => (
-        <ConversationEntry key={index} item={item} status={task.status} isLast={index === conversation.length - 1} />
+        <ConversationEntry
+          key={index}
+          item={item}
+          status={task.status}
+          isLast={index === conversation.length - 1}
+          isLastReasoning={index === lastReasoningIndex}
+        />
       ))}
       {task.status === 'Completed' && <FollowUpForm onSubmit={(message) => onFollowUp(task.id, message)} />}
       <div className="task-meta">
