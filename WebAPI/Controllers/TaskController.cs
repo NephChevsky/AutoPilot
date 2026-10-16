@@ -1,5 +1,6 @@
 ﻿using AutoPilot.WebAPI.Database;
 using AutoPilot.WebAPI.Database.Models;
+using AutoPilot.WebAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -109,6 +110,8 @@ namespace AutoPilot.WebAPI.Controllers
 			await dbContext.Conversations.Where(c => c.TaskId == id).ExecuteDeleteAsync();
 			dbContext.Tasks.Remove(task);
 			await dbContext.SaveChangesAsync();
+
+			TaskService.DeleteRepositoryFolder(id);
 
 			return NoContent();
 		}
