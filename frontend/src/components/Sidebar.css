@@ -48,6 +48,13 @@
   background: #4d556e;
 }
 
+.sidebar-section.sidebar-history {
+  flex: 0 1 auto;
+  max-height: 40%;
+  padding-bottom: 0;
+  border-bottom: 1px solid var(--border);
+}
+
 .sidebar-section-header {
   display: flex;
   align-items: center;

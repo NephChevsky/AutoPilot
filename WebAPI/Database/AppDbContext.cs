@@ -12,6 +12,8 @@ namespace AutoPilot.WebAPI.Database
 		public DbSet<Repository> Repositories { get; set; }
 		public DbSet<RepositoryTask> Tasks { get; set; }
 		public DbSet<Conversation> Conversations { get; set; }
+		public DbSet<Chat> Chats { get; set; }
+		public DbSet<ChatMessage> ChatMessages { get; set; }
 
 		protected override void OnModelCreating(ModelBuilder modelBuilder)
 		{
@@ -101,6 +103,44 @@ namespace AutoPilot.WebAPI.Database
 				entity.HasOne(e => e.Task)
 					.WithMany(t => t.Conversations)
 					.HasForeignKey(e => e.TaskId)
+					.OnDelete(DeleteBehavior.Cascade);
+			});
+
+			modelBuilder.Entity<Chat>(entity =>
+			{
+				entity.HasKey(e => e.Id);
+
+				entity.Property(e => e.Id)
+					.ValueGeneratedOnAdd();
+
+				entity.Property(e => e.Title)
+					.IsRequired();
+
+				entity.HasIndex(e => new { e.UserId, e.UpdateDateTime });
+
+				entity.HasOne(e => e.User)
+					.WithMany()
+					.HasForeignKey(e => e.UserId)
+					.OnDelete(DeleteBehavior.Cascade);
+			});
+
+			modelBuilder.Entity<ChatMessage>(entity =>
+			{
+				entity.HasKey(e => e.Id);
+
+				entity.Property(e => e.Id)
+					.ValueGeneratedOnAdd();
+
+				entity.Property(e => e.Role)
+					.HasConversion<string>()
+					.IsRequired();
+
+				entity.Property(e => e.Content)
+					.IsRequired();
+
+				entity.HasOne(e => e.Chat)
+					.WithMany(c => c.Messages)
+					.HasForeignKey(e => e.ChatId)
 					.OnDelete(DeleteBehavior.Cascade);
 			});
 		}

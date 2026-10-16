@@ -23,6 +23,73 @@ namespace AutoPilot.WebAPI.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Chat", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreationDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creation_date_time");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdateDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("update_date_time");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_chats");
+
+                    b.HasIndex("UserId", "UpdateDateTime")
+                        .HasDatabaseName("ix_chats_user_id_update_date_time");
+
+                    b.ToTable("chats", (string)null);
+                });
+
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.ChatMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChatId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("chat_id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreationDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creation_date_time");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("role");
+
+                    b.HasKey("Id")
+                        .HasName("pk_chat_messages");
+
+                    b.HasIndex("ChatId")
+                        .HasDatabaseName("ix_chat_messages_chat_id");
+
+                    b.ToTable("chat_messages", (string)null);
+                });
+
             modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Conversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -234,6 +301,30 @@ namespace AutoPilot.WebAPI.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Chat", b =>
+                {
+                    b.HasOne("AutoPilot.WebAPI.Database.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_chats_users_user_id");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.ChatMessage", b =>
+                {
+                    b.HasOne("AutoPilot.WebAPI.Database.Models.Chat", "Chat")
+                        .WithMany("Messages")
+                        .HasForeignKey("ChatId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_chat_messages_chats_chat_id");
+
+                    b.Navigation("Chat");
+                });
+
             modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Conversation", b =>
                 {
                     b.HasOne("AutoPilot.WebAPI.Database.Models.RepositoryTask", "Task")
@@ -256,6 +347,11 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasConstraintName("fk_tasks_repositories_repository_id");
 
                     b.Navigation("Repository");
+                });
+
+            modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.Chat", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("AutoPilot.WebAPI.Database.Models.RepositoryTask", b =>
