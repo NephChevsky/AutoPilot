@@ -124,6 +124,7 @@ namespace AutoPilot.WebAPI.Services
 
 			await using CopilotSession session = await client.CreateSessionAsync(new SessionConfig
 			{
+				SessionId = task.Id.ToString(),
 				Model = "claude-sonnet-5.5",
 				ReasoningEffort = "medium",
 				WorkingDirectory = workingDirectory,
