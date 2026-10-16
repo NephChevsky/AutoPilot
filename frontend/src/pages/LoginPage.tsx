@@ -1,6 +1,6 @@
 import { useEffect, useState, type SubmitEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import { isAxiosError } from 'axios'
 import api from '../api/axios'
 import { useAuthStore } from '../store/authStore'
@@ -76,7 +76,6 @@ function LoginPage() {
           {loginLoading ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
-      <Toaster position="bottom-center" />
     </div>
   )
 }
