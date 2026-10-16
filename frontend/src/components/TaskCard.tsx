@@ -26,6 +26,8 @@ const authorLabels: Record<ConversationItem['author'], string> = {
 
 interface DisplayItem extends ConversationItem {
   live?: boolean
+  // Consecutive folded reasoning items (any author), kept so each shows its agent label
+  group?: ConversationItem[]
 }
 
 // Merges consecutive reasoning items into one folded block; the trailing run of
@@ -42,8 +44,8 @@ function mergeReasoning(items: ConversationItem[], status: TaskStatus): DisplayI
       return merged
     }
     const last = merged[merged.length - 1]
-    if (last && !last.live && isReasoning(last) && isReasoning(item) && last.author === item.author) {
-      merged[merged.length - 1] = { ...last, content: `${last.content}\n\n${item.content}` }
+    if (last && !last.live && isReasoning(last) && isReasoning(item)) {
+      merged[merged.length - 1] = { ...last, group: [...(last.group ?? [last]), item] }
     } else {
       merged.push(item)
     }
@@ -61,9 +63,14 @@ function ConversationEntry({ item, status, isLast }: { item: DisplayItem; status
   if (item.type === 'Reasoning' && !item.live) {
     return (
       <details className="reasoning-fold">
-        <summary>Show reasoning · {authorLabels[item.author]}</summary>
-        <div className="markdown">
-          <Markdown>{item.content}</Markdown>
+        <summary>Show reasoning</summary>
+        <div className="reasoning-fold-content">
+          {(item.group ?? [item]).map((entry, index) => (
+            <div className="markdown" key={index}>
+              <div className="agent-label">{authorLabels[entry.author]}</div>
+              <Markdown>{entry.content}</Markdown>
+            </div>
+          ))}
         </div>
       </details>
     )
