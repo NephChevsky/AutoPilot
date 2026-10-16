@@ -12,6 +12,10 @@ namespace AutoPilot.WebAPI.Services
 	{
 		private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 		private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromMinutes(30);
+		private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
+		private static readonly TimeSpan LeaseTimeout = TimeSpan.FromMinutes(2);
+		private static readonly Guid InstanceId = Guid.NewGuid();
+		private const string InterruptedMessage = "Task was interrupted (the worker stopped responding) and can be restarted.";
 		private const string CopilotModel = "claude-sonnet-5.5";
 		private const string CopilotReasoningEffort = "medium";
 		private const string OrchestratorAgent = "orchestrator";
@@ -22,6 +26,8 @@ namespace AutoPilot.WebAPI.Services
 			{
 				try
 				{
+					await RecoverStaleTasksAsync(stoppingToken);
+
 					bool processed = await ProcessNextAsync(stoppingToken);
 
 					if (!processed)
@@ -38,6 +44,67 @@ namespace AutoPilot.WebAPI.Services
 					logger.LogError(ex, "Task processing failed");
 					await Task.Delay(PollInterval, stoppingToken);
 				}
+			}
+		}
+
+		private async Task RecoverStaleTasksAsync(CancellationToken cancellationToken)
+		{
+			using IServiceScope scope = scopeFactory.CreateScope();
+			AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+			DateTime cutoff = DateTime.UtcNow - LeaseTimeout;
+			List<Guid> staleIds = await db.Tasks
+				.Where(t => t.Status == RepositoryTaskStatus.Processing && (t.HeartbeatDateTime == null || t.HeartbeatDateTime < cutoff))
+				.Select(t => t.Id)
+				.ToListAsync(cancellationToken);
+
+			foreach (Guid taskId in staleIds)
+			{
+				// The predicate is repeated so that only one instance recovers a given task
+				int updated = await db.Tasks
+					.Where(t => t.Id == taskId && t.Status == RepositoryTaskStatus.Processing && (t.HeartbeatDateTime == null || t.HeartbeatDateTime < cutoff))
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(t => t.Status, RepositoryTaskStatus.Error)
+						.SetProperty(t => t.CompletionDateTime, DateTime.UtcNow)
+						.SetProperty(t => t.ProcessingInstanceId, (Guid?)null)
+						.SetProperty(t => t.ProcessingProcessId, (int?)null)
+						.SetProperty(t => t.HeartbeatDateTime, (DateTime?)null), cancellationToken);
+
+				if (updated == 0)
+				{
+					continue;
+				}
+
+				db.Conversations.Add(new Conversation { TaskId = taskId, Author = ConversationAuthor.Autopilot, Content = InterruptedMessage });
+				await db.SaveChangesAsync(cancellationToken);
+				logger.LogWarning("Recovered stale task {TaskId}", taskId);
+			}
+		}
+
+		private async Task RunHeartbeatAsync(Guid taskId, CancellationToken cancellationToken)
+		{
+			using PeriodicTimer timer = new(HeartbeatInterval);
+
+			try
+			{
+				while (await timer.WaitForNextTickAsync(cancellationToken))
+				{
+					try
+					{
+						using IServiceScope scope = scopeFactory.CreateScope();
+						AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+						await db.Tasks
+							.Where(t => t.Id == taskId && t.Status == RepositoryTaskStatus.Processing && t.ProcessingInstanceId == InstanceId)
+							.ExecuteUpdateAsync(s => s.SetProperty(t => t.HeartbeatDateTime, DateTime.UtcNow), cancellationToken);
+					}
+					catch (Exception ex) when (ex is not OperationCanceledException)
+					{
+						logger.LogWarning(ex, "Could not update heartbeat for task {TaskId}", taskId);
+					}
+				}
+			}
+			catch (OperationCanceledException)
+			{
 			}
 		}
 
@@ -58,9 +125,31 @@ namespace AutoPilot.WebAPI.Services
 			}
 
 			task.Status = RepositoryTaskStatus.Processing;
+			task.ProcessingInstanceId = InstanceId;
+			task.ProcessingProcessId = Environment.ProcessId;
+			task.HeartbeatDateTime = DateTime.UtcNow;
 			await db.SaveChangesAsync(cancellationToken);
 
 			logger.LogInformation("Processing task {TaskId}", task.Id);
+
+			using CancellationTokenSource heartbeatCts = new();
+			Task heartbeat = RunHeartbeatAsync(task.Id, heartbeatCts.Token);
+
+			try
+			{
+				await ProcessTaskAsync(db, task, cancellationToken);
+			}
+			finally
+			{
+				await heartbeatCts.CancelAsync();
+				await heartbeat;
+			}
+
+			return true;
+		}
+
+		private async Task ProcessTaskAsync(AppDbContext db, RepositoryTask task, CancellationToken cancellationToken)
+		{
 
 			List<string> userMessages = await db.Conversations
 				.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
@@ -85,6 +174,24 @@ namespace AutoPilot.WebAPI.Services
 				response = ex.ToString();
 				logger.LogError(ex, "Task {TaskId} failed", task.Id);
 			}
+			catch (OperationCanceledException)
+			{
+				// Host is stopping: leave the task restartable instead of stuck in Processing
+				try
+				{
+					task.Status = RepositoryTaskStatus.Error;
+					task.CompletionDateTime = DateTime.UtcNow;
+					ClearProcessingFields(task);
+					db.Conversations.Add(new Conversation { TaskId = task.Id, Author = ConversationAuthor.Autopilot, Content = InterruptedMessage });
+					await db.SaveChangesAsync(CancellationToken.None);
+				}
+				catch (Exception saveEx)
+				{
+					logger.LogError(saveEx, "Could not mark interrupted task {TaskId} as failed; it will be recovered when its lease expires", task.Id);
+				}
+
+				throw;
+			}
 
 			if (response is not null)
 			{
@@ -92,9 +199,24 @@ namespace AutoPilot.WebAPI.Services
 			}
 
 			task.CompletionDateTime = DateTime.UtcNow;
-			await db.SaveChangesAsync(CancellationToken.None);
+			ClearProcessingFields(task);
 
-			return true;
+			try
+			{
+				await db.SaveChangesAsync(CancellationToken.None);
+			}
+			catch (Exception ex)
+			{
+				logger.LogError(ex, "Could not save final state of task {TaskId}; it will be recovered when its lease expires", task.Id);
+				throw;
+			}
+		}
+
+		private static void ClearProcessingFields(RepositoryTask task)
+		{
+			task.ProcessingInstanceId = null;
+			task.ProcessingProcessId = null;
+			task.HeartbeatDateTime = null;
 		}
 
 		private static string BuildBranchInstructions(RepositoryTask task) =>

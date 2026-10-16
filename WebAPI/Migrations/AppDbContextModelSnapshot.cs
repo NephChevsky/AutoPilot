@@ -165,6 +165,18 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("creation_date_time");
 
+                    b.Property<DateTime?>("HeartbeatDateTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("heartbeat_date_time");
+
+                    b.Property<Guid?>("ProcessingInstanceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_instance_id");
+
+                    b.Property<int?>("ProcessingProcessId")
+                        .HasColumnType("integer")
+                        .HasColumnName("processing_process_id");
+
                     b.Property<Guid>("RepositoryId")
                         .HasColumnType("uuid")
                         .HasColumnName("repository_id");

@@ -10,6 +10,9 @@ namespace AutoPilot.WebAPI.Database.Models
 		public string Title { get; set; } = string.Empty;
 		public RepositoryTaskStatus Status { get; set; } = RepositoryTaskStatus.NotStarted;
 		public string? BranchName { get; set; }
+		public Guid? ProcessingInstanceId { get; set; }
+		public int? ProcessingProcessId { get; set; }
+		public DateTime? HeartbeatDateTime { get; set; }
 		public List<Conversation> Conversations { get; set; } = [];
 	}
 }
