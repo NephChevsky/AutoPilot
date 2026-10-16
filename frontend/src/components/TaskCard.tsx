@@ -35,7 +35,7 @@ function ConversationEntry({ item, status, isLast }: { item: ConversationItem; s
   if (status === 'Error' && isLast) {
     return <pre className="task-error">{item.content}</pre>
   }
-  if (item.type === 'Reasoning' && status === 'Completed') {
+  if (item.type === 'Reasoning' && (status === 'Completed' || !isLast)) {
     return (
       <details className="reasoning-fold">
         <summary>Show reasoning</summary>
