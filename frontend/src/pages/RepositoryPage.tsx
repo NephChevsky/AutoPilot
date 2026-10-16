@@ -6,7 +6,7 @@ import TaskCard from '../components/TaskCard'
 import type { GithubRepository } from '../hooks/useRepositories'
 import { useTasks } from '../hooks/useTasks'
 import type { RepositoryTask, TaskStatus } from '../hooks/useTasks'
-import { computeCosts, formatCosts } from '../utils/cost'
+import { computeCosts } from '../utils/cost'
 
 function RepositoryDetails({ id }: { id: string | undefined }) {
   const [repository, setRepository] = useState<GithubRepository | null>(null)
@@ -74,22 +74,27 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">{repository.name}</h1>
-        <a
-          className="page-link"
-          href={repository.htmlUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open on GitHub"
-          aria-label="Open on GitHub"
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <path d="M15 3h6v6" />
-            <path d="M10 14 21 3" />
-          </svg>
-        </a>
-        <span className="page-cost">{formatCosts(costs)}</span>
+        <div className="page-heading">
+          <h1 className="page-title">{repository.name}</h1>
+          <a
+            className="page-link"
+            href={repository.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open on GitHub"
+            aria-label="Open on GitHub"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <path d="M15 3h6v6" />
+              <path d="M10 14 21 3" />
+            </svg>
+          </a>
+        </div>
+        <span className="page-cost page-cost-split">
+          <span>Total: {costs.total.toFixed(2)} AIU</span>
+          <span>This month: {costs.monthly.toFixed(2)} AIU</span>
+        </span>
         <button className="btn-primary" onClick={() => setCreatingTask(true)}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14" />

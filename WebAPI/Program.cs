@@ -4,6 +4,7 @@ using DiscordLib;
 using JwtLib;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.EntityFrameworkCore;
 using PostgresLib;
 using System.Text.Json.Serialization;
 
@@ -15,12 +16,25 @@ namespace AutoPilot.WebAPI
 		{
 			WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+			builder.Configuration.AddJsonFile("secrets.json", true);
+
+			builder.WebHost.ConfigureKestrel(options =>
+			{
+				string? port = Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORT");
+				if (port != null)
+				{
+					options.ListenAnyIP(int.Parse(port));
+				}
+			});
+
+			string[] corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
+
 			builder.Services.AddCors(options =>
 			{
 				options.AddPolicy("FrontEndCorsPolicy",
 					policy =>
 					{
-						policy.WithOrigins("http://localhost:5173")
+						policy.WithOrigins(["http://localhost:5173", .. corsOrigins])
 							.AllowAnyHeader()
 							.AllowAnyMethod()
 							.AllowCredentials();
@@ -48,6 +62,11 @@ namespace AutoPilot.WebAPI
 
 			WebApplication app = builder.Build();
 
+			using (IServiceScope scope = app.Services.CreateScope())
+			{
+				scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+			}
+
 			app.UseCors("FrontEndCorsPolicy");
 
 			app.UseJwtAuthenticationLib();
@@ -57,3 +76,4 @@ namespace AutoPilot.WebAPI
 		}
 	}
 }
+
