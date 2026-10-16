@@ -11,6 +11,7 @@ namespace AutoPilot.WebAPI.Database
 		public DbSet<Device> Devices { get; set; }
 		public DbSet<Repository> Repositories { get; set; }
 		public DbSet<RepositoryTask> Tasks { get; set; }
+		public DbSet<Conversation> Conversations { get; set; }
 
 		protected override void OnModelCreating(ModelBuilder modelBuilder)
 		{
@@ -68,9 +69,6 @@ namespace AutoPilot.WebAPI.Database
 				entity.Property(e => e.Id)
 					.ValueGeneratedOnAdd();
 
-				entity.Property(e => e.Task)
-					.IsRequired();
-
 				entity.Property(e => e.Status)
 					.HasConversion<string>()
 					.HasDefaultValue(RepositoryTaskStatus.NotStarted)
@@ -79,6 +77,26 @@ namespace AutoPilot.WebAPI.Database
 				entity.HasOne(e => e.Repository)
 					.WithMany()
 					.HasForeignKey(e => e.RepositoryId)
+					.OnDelete(DeleteBehavior.Cascade);
+			});
+
+			modelBuilder.Entity<Conversation>(entity =>
+			{
+				entity.HasKey(e => e.Id);
+
+				entity.Property(e => e.Id)
+					.ValueGeneratedOnAdd();
+
+				entity.Property(e => e.Author)
+					.HasConversion<string>()
+					.IsRequired();
+
+				entity.Property(e => e.Content)
+					.IsRequired();
+
+				entity.HasOne(e => e.Task)
+					.WithMany(t => t.Conversations)
+					.HasForeignKey(e => e.TaskId)
 					.OnDelete(DeleteBehavior.Cascade);
 			});
 		}
