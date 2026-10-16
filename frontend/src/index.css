@@ -292,6 +292,12 @@ textarea {
   font-family: inherit;
 }
 
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
 .btn-primary {
   display: inline-flex;
   align-items: center;
