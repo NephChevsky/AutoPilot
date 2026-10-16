@@ -6,6 +6,8 @@ import api from '../api/axios'
 import CreateTaskDialog from '../components/CreateTaskDialog'
 import type { GithubRepository } from '../hooks/useRepositories'
 
+const encodeBranch = (name: string) => name.split('/').map(encodeURIComponent).join('/')
+
 interface RepositoryTask {
   id: string
   repositoryId: string
@@ -185,7 +187,7 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                 <span style={{ opacity: 0.6 }}>{new Date(task.creationDateTime).toLocaleString()}</span>
                 {task.branchName && (
                   <a
-                    href={`${repository.htmlUrl}/tree/${task.branchName.split('/').map(encodeURIComponent).join('/')}`}
+                    href={`${repository.htmlUrl}/compare/${encodeBranch(repository.defaultBranch || 'master')}...${encodeBranch(task.branchName)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
