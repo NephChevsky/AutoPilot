@@ -39,6 +39,10 @@ If an essential requirement is ambiguous and cannot safely be inferred, report i
 
 Do not claim that external verification or other operations occurred unless you actually performed them.
 
+## Frontend verification
+
+Before type-checking, building, or linting frontend code, check whether `frontend\node_modules` exists. If it is missing, run `npm ci` in `frontend` first, then run `npx tsc -b` (and `npm run lint` if relevant). Do not report `tsc` as unavailable without having done this; report the actual tool output.
+
 ## Review feedback
 
 When the Orchestrator provides review findings:

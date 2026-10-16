@@ -48,6 +48,10 @@ In a codebase audit (and in a change review when the change touches these areas)
 - Concurrency or atomicity assumptions that are not enforced (e.g. non-atomic claim of work items).
 - Layers or modules coupled through internal details such as file layout or static helpers.
 
+## Frontend verification
+
+Before type-checking, building, or linting frontend code, check whether `frontend\node_modules` exists. If it is missing, run `npm ci` in `frontend` first, then run `npx tsc -b` (and `npm run lint` if relevant). Installing dependencies is allowed: it does not count as modifying source files, since `node_modules` is untracked. Report the actual tool output; never claim `tsc` is unavailable without having done this.
+
 ## Review standards
 
 For every suspected issue:
