@@ -25,7 +25,6 @@ namespace AutoPilot.WebAPI.Controllers
 			DateTime CreationDateTime,
 			DateTime? CompletionDateTime,
 			string Title,
-			string Task,
 			RepositoryTaskStatus Status,
 			string? Response,
 			string? BranchName,
@@ -52,7 +51,6 @@ namespace AutoPilot.WebAPI.Controllers
 					t.CreationDateTime,
 					t.CompletionDateTime,
 					t.Title,
-					t.Conversations.Where(c => c.Author == ConversationAuthor.Neph).OrderBy(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault() ?? string.Empty,
 					t.Status,
 					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot && c.Type == ConversationType.Message).OrderByDescending(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault(),
 					t.BranchName,
@@ -96,7 +94,7 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, task.Cost,
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Status, null, task.BranchName, task.Cost,
 				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
 		}
 
@@ -360,9 +358,8 @@ namespace AutoPilot.WebAPI.Controllers
 				.OrderBy(c => c.CreationDateTime)
 				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
 				.ToListAsync();
-			string taskText = conversation.FirstOrDefault(c => c.Author == ConversationAuthor.Neph)?.Content ?? string.Empty;
 
-			return new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, taskText, task.Status, null, task.BranchName, task.Cost, conversation);
+			return new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Status, null, task.BranchName, task.Cost, conversation);
 		}
 
 		private static GitHubClient CreateGithubClient(string token) =>

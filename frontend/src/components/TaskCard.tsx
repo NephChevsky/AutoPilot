@@ -87,12 +87,12 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCa
   const [cancelling, setCancelling] = useState(false)
   // Reset once the task leaves Processing (cancelled, finished or retried)
   if (cancelling && task.status !== 'Processing') setCancelling(false)
-  const conversation = mergeReasoning(task.conversation.slice(1), task.status)
+  const conversation = mergeReasoning(task.conversation, task.status)
   const isEditing = editing && task.status === 'NotStarted'
 
   const startEditing = () => {
     setTitle(task.title)
-    setText(task.task)
+    setText(task.conversation[0]?.content ?? '')
     setEditing(true)
   }
 
@@ -136,10 +136,7 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onDelete, onCa
         </div>
       ) : (
       <div className="task-head">
-        <div>
-          {task.title && <div className="task-title">{task.title}</div>}
-          <div className="task-text">{task.task}</div>
-        </div>
+        <div className="task-title">{task.title}</div>
         <div className="task-actions">
           <span className={`status-label status-${task.status}`}>{statusLabels[task.status]}</span>
           {task.status === 'NotStarted' && (

@@ -17,7 +17,6 @@ export interface RepositoryTask {
   creationDateTime: string
   completionDateTime: string | null
   title: string
-  task: string
   status: TaskStatus
   response: string | null
   branchName: string | null
