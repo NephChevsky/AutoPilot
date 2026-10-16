@@ -217,9 +217,11 @@ a {
   animation: delete-label-in 0.25s ease-out;
 }
 
-.delete-btn.confirming {
+.delete-btn.confirming,
+.delete-btn.confirming:hover {
   border-color: #7f1d1d;
   background: #7f1d1d;
+  box-shadow: none;
 }
 
 .delete-btn.arming {
