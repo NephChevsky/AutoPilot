@@ -18,6 +18,13 @@ interface RepositoryTask {
   status: 'NotStarted' | 'PendingStart' | 'Processing' | 'Completed' | 'Error'
   response: string | null
   branchName: string | null
+  conversation: ConversationItem[]
+}
+
+interface ConversationItem {
+  author: 'Neph' | 'Autopilot'
+  content: string
+  creationDateTime: string
 }
 
 const statusLabels: Record<RepositoryTask['status'], string> = {
@@ -159,11 +166,16 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   )}
                 </div>
               </div>
-              {task.response && task.status === 'Error' && <pre className="task-error">{task.response}</pre>}
-              {task.response && task.status !== 'Error' && (
-                <div className="markdown">
-                  <Markdown>{task.response}</Markdown>
-                </div>
+              {task.conversation.slice(1).map((item, index, items) =>
+                item.author === 'Autopilot' && task.status === 'Error' && index === items.length - 1 ? (
+                  <pre key={index} className="task-error">{item.content}</pre>
+                ) : item.author === 'Autopilot' ? (
+                  <div key={index} className="markdown">
+                    <Markdown>{item.content}</Markdown>
+                  </div>
+                ) : (
+                  <div key={index} className="task-text">{item.content}</div>
+                ),
               )}
               <div className="task-meta">
                 <span>{new Date(task.creationDateTime).toLocaleString()}</span>
