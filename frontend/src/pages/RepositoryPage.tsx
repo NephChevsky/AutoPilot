@@ -74,6 +74,33 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     }
   }, [id])
 
+  const hasActiveTask = tasks.some((t) => t.status === 'PendingStart' || t.status === 'Processing')
+
+  useEffect(() => {
+    if (!hasActiveTask) return
+    let cancelled = false
+
+    const interval = setInterval(() => {
+      api
+        .get<RepositoryTask[]>('/task', { params: { repositoryId: id } })
+        .then(({ data }) => {
+          if (cancelled) return
+          setTasks((current) =>
+            data.map((t) => {
+              const existing = current.find((c) => c.id === t.id)
+              return existing && t.response === undefined ? { ...t, response: existing.response } : t
+            }),
+          )
+        })
+        .catch(() => {})
+    }, 3000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [id, hasActiveTask])
+
   const createTask = async (title: string, text: string) => {
     try {
       const { data } = await api.post<RepositoryTask>('/task', { repositoryId: id, title, task: text })
