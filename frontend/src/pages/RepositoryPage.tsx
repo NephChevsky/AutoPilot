@@ -79,6 +79,18 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
     }
   }
 
+  const mergeTask = async (taskId: string) => {
+    if (!window.confirm('Merge this task branch into the default branch?')) return
+    try {
+      const { data } = await api.post<RepositoryTask>(`/task/${taskId}/merge`)
+      setTasks((current) => current.map((t) => (t.id === data.id ? { ...data, response: t.response } : t)))
+      toast.success('Branch merged')
+    } catch (e) {
+      const message = (e as { response?: { data?: unknown } }).response?.data
+      toast.error(typeof message === 'string' ? message : 'Failed to merge branch')
+    }
+  }
+
   const deleteTask = async (taskId: string) => {
     if (!window.confirm('Delete this task and its conversation?')) return
     try {
@@ -158,6 +170,11 @@ function RepositoryDetails({ id }: { id: string | undefined }) {
                   {(task.status === 'NotStarted' || task.status === 'Error') && (
                     <button className="btn-primary" onClick={() => startTask(task.id)}>
                       {task.status === 'Error' ? 'Retry' : 'Start'}
+                    </button>
+                  )}
+                  {task.status === 'Completed' && task.branchName && (
+                    <button className="btn-primary" onClick={() => mergeTask(task.id)}>
+                      Merge
                     </button>
                   )}
                   {(task.status === 'NotStarted' || task.status === 'Completed' || task.status === 'Error') && (
