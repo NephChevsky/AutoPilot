@@ -21,6 +21,8 @@ namespace AutoPilot.WebAPI.Services
 		private const string CancelledMessage = "Task was cancelled.";
 		// Running tasks of this instance, so that a cancel request can stop the matching run
 		private static readonly ConcurrentDictionary<Guid, CancellationTokenSource> RunningTasks = new();
+		// One lock per repository: tasks of the same repository share one folder and must not use it simultaneously
+		private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> RepositoryLocks = new();
 		private const string CopilotModel = "claude-sonnet-5.5";
 		private const string CopilotReasoningEffort = "medium";
 		private const string OrchestratorAgent = "orchestrator";
@@ -219,7 +221,7 @@ namespace AutoPilot.WebAPI.Services
 					.OrderBy(c => c.CreationDateTime)
 					.Select(c => c.Content)
 					.ToListAsync(cancellationToken);
-				bool isFollowUp = userMessages.Count > 1 && Directory.Exists(GetRepositoryFolder(task.Id));
+				bool isFollowUp = userMessages.Count > 1 && task.Repository is not null && Directory.Exists(GetRepositoryFolder(task.Repository));
 				string prompt = (isFollowUp ? userMessages[^1] : userMessages.FirstOrDefault()) ?? string.Empty;
 
 				response = await RunWithCopilotAsync(task, prompt, isFollowUp, cost, cancellationToken);
@@ -345,7 +347,12 @@ namespace AutoPilot.WebAPI.Services
 			string token = configuration["Copilot:Token"]
 				?? throw new InvalidOperationException("Copilot:Token is not configured");
 
-			string workingDirectory = isFollowUp ? GetRepositoryFolder(task.Id) : await CheckoutRepositoryAsync(task, cancellationToken);
+			Repository repository = task.Repository
+				?? throw new InvalidOperationException("Task repository not loaded");
+
+			using IDisposable repositoryLock = await AcquireRepositoryLockAsync(repository, cancellationToken);
+
+			string workingDirectory = await PrepareRepositoryAsync(task, repository, isFollowUp, cancellationToken);
 
 			await using CopilotClient client = new(new CopilotClientOptions
 			{
@@ -443,7 +450,12 @@ namespace AutoPilot.WebAPI.Services
 		{
 			try
 			{
-				string folder = GetRepositoryFolder(task.Id);
+				Repository repository = task.Repository
+					?? throw new InvalidOperationException("Task repository not loaded");
+
+				using IDisposable repositoryLock = await AcquireRepositoryLockAsync(repository, cancellationToken);
+
+				string folder = GetRepositoryFolder(repository);
 				string branch = BuildBranchName(task);
 
 				(int exitCode, string _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--verify", "--quiet", $"refs/heads/{branch}");
@@ -503,39 +515,23 @@ namespace AutoPilot.WebAPI.Services
 			return (exitCode, output);
 		}
 
-		private static string GetRepositoryFolder(Guid taskId) => Path.Combine(AppContext.BaseDirectory, "Tasks", taskId.ToString());
+		// One folder per repository, reused across tasks and never deleted
+		private static string GetRepositoryFolder(Repository repository) => Path.Combine(AppContext.BaseDirectory, "Repositories", repository.Id.ToString());
 
-		public static void DeleteRepositoryFolder(Guid taskId)
+		private sealed class LockReleaser(SemaphoreSlim semaphore) : IDisposable
 		{
-			string folder = GetRepositoryFolder(taskId);
-
-			if (!Directory.Exists(folder))
-			{
-				return;
-			}
-
-			// Git object files are read-only, which blocks recursive deletion on Windows
-			foreach (string file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
-			{
-				File.SetAttributes(file, FileAttributes.Normal);
-			}
-
-			Directory.Delete(folder, recursive: true);
+			public void Dispose() => semaphore.Release();
 		}
 
-		private async Task<string> CheckoutRepositoryAsync(RepositoryTask task, CancellationToken cancellationToken)
+		private static async Task<IDisposable> AcquireRepositoryLockAsync(Repository repository, CancellationToken cancellationToken)
 		{
-			Repository repository = task.Repository
-				?? throw new InvalidOperationException("Task repository not loaded");
+			SemaphoreSlim semaphore = RepositoryLocks.GetOrAdd(repository.Id, _ => new SemaphoreSlim(1, 1));
+			await semaphore.WaitAsync(cancellationToken);
+			return new LockReleaser(semaphore);
+		}
 
-			string folder = GetRepositoryFolder(task.Id);
-
-			DeleteRepositoryFolder(task.Id);
-
-			Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
-
-			ProcessStartInfo startInfo = CreateGitStartInfo(null, "clone", repository.CloneUrl, folder);
-
+		private void ApplyGitCredentials(ProcessStartInfo startInfo)
+		{
 			string? githubToken = configuration["Github:Token"];
 			if (!string.IsNullOrEmpty(githubToken))
 			{
@@ -546,6 +542,119 @@ namespace AutoPilot.WebAPI.Services
 			}
 
 			startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+		}
+
+		private async Task RunGitCheckedAsync(string folder, bool authenticated, CancellationToken cancellationToken, params string[] args)
+		{
+			ProcessStartInfo startInfo = CreateGitStartInfo(folder, args);
+			if (authenticated)
+			{
+				ApplyGitCredentials(startInfo);
+			}
+
+			(int exitCode, _, string error) = await RunProcessAsync(startInfo, cancellationToken);
+
+			if (exitCode != 0)
+			{
+				throw new InvalidOperationException($"git {args[0]} failed: {error}");
+			}
+		}
+
+		// Must be called while holding the repository lock
+		private async Task<string> PrepareRepositoryAsync(RepositoryTask task, Repository repository, bool isFollowUp, CancellationToken cancellationToken)
+		{
+			string folder = GetRepositoryFolder(repository);
+
+			try
+			{
+				if (await IsValidCloneAsync(folder, cancellationToken))
+				{
+					return await SyncRepositoryAsync(task, repository, folder, isFollowUp, cancellationToken);
+				}
+			}
+			catch (InvalidOperationException)
+			{
+				// Corrupted clone: fall through and re-clone once
+			}
+
+			await CloneRepositoryAsync(repository, folder, cancellationToken);
+			return await SyncRepositoryAsync(task, repository, folder, isFollowUp, cancellationToken);
+		}
+
+		private async Task<bool> IsValidCloneAsync(string folder, CancellationToken cancellationToken)
+		{
+			if (!Directory.Exists(Path.Combine(folder, ".git")))
+			{
+				return false;
+			}
+
+			(int exitCode, _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--git-dir");
+			return exitCode == 0;
+		}
+
+		private async Task<string> SyncRepositoryAsync(RepositoryTask task, Repository repository, string folder, bool isFollowUp, CancellationToken cancellationToken)
+		{
+			string defaultBranch = string.IsNullOrWhiteSpace(repository.DefaultBranch) ? "master" : repository.DefaultBranch;
+			string branch = BuildBranchName(task);
+
+			// A stale lock from a killed git process would block every later command (we hold the repository lock)
+			string indexLock = Path.Combine(folder, ".git", "index.lock");
+			if (File.Exists(indexLock))
+			{
+				File.Delete(indexLock);
+			}
+
+			await RunGitCheckedAsync(folder, false, cancellationToken, "remote", "set-url", "origin", repository.CloneUrl);
+			await RunGitCheckedAsync(folder, true, cancellationToken, "fetch", "--prune", "origin");
+
+			if (isFollowUp)
+			{
+				// Continue on the task branch when it still exists
+				(int exitCode, _) = await RunGitAsync(folder, cancellationToken, "checkout", "--force", branch, "--");
+				if (exitCode == 0)
+				{
+					(int remoteExists, _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{branch}");
+					if (remoteExists == 0)
+					{
+						await RunGitCheckedAsync(folder, false, cancellationToken, "reset", "--hard", $"origin/{branch}");
+					}
+
+					await RunGitCheckedAsync(folder, false, cancellationToken, "clean", "-fdx");
+					return folder;
+				}
+			}
+
+			await RunGitCheckedAsync(folder, false, cancellationToken, "checkout", "--force", defaultBranch, "--");
+			await RunGitCheckedAsync(folder, false, cancellationToken, "reset", "--hard", $"origin/{defaultBranch}");
+			await RunGitCheckedAsync(folder, false, cancellationToken, "clean", "-fdx");
+
+			if (!isFollowUp)
+			{
+				// A local branch left by an earlier task with the same name must not leak into this one
+				await RunGitAsync(folder, cancellationToken, "branch", "-D", branch);
+			}
+
+			return folder;
+		}
+
+		private async Task CloneRepositoryAsync(Repository repository, string folder, CancellationToken cancellationToken)
+		{
+			// A leftover folder without a valid clone (e.g. an interrupted clone) is removed so the clone can succeed
+			if (Directory.Exists(folder))
+			{
+				// Git object files are read-only, which blocks recursive deletion on Windows
+				foreach (string file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+				{
+					File.SetAttributes(file, FileAttributes.Normal);
+				}
+
+				Directory.Delete(folder, recursive: true);
+			}
+
+			Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
+
+			ProcessStartInfo startInfo = CreateGitStartInfo(null, "clone", repository.CloneUrl, folder);
+			ApplyGitCredentials(startInfo);
 
 			(int exitCode, _, string error) = await RunProcessAsync(startInfo, cancellationToken);
 
@@ -553,8 +662,6 @@ namespace AutoPilot.WebAPI.Services
 			{
 				throw new InvalidOperationException($"git clone failed: {error}");
 			}
-
-			return folder;
 		}
 	}
 }

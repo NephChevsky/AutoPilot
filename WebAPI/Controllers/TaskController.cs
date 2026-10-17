@@ -274,15 +274,6 @@ namespace AutoPilot.WebAPI.Controllers
 			task.CompletionDateTime ??= DateTime.UtcNow;
 			await dbContext.SaveChangesAsync();
 
-			try
-			{
-				TaskService.DeleteRepositoryFolder(id);
-			}
-			catch (Exception ex)
-			{
-				logger.LogWarning(ex, "Could not delete repository folder for task {TaskId}", id);
-			}
-
 			return Ok(await BuildTaskResponseAsync(task));
 		}
 
