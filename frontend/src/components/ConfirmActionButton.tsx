@@ -7,9 +7,15 @@ interface ConfirmActionButtonProps {
   onConfirm: () => void
   label?: string
   className?: string
+  variant?: 'danger' | 'success'
 }
 
-function ConfirmActionButton({ onConfirm, label = 'Delete', className = 'btn-secondary danger' }: ConfirmActionButtonProps) {
+function ConfirmActionButton({
+  onConfirm,
+  label = 'Delete',
+  className = 'btn-secondary danger',
+  variant = 'danger',
+}: ConfirmActionButtonProps) {
   const [state, setState] = useState<'idle' | 'arming' | 'armed'>('idle')
 
   useEffect(() => {
@@ -25,11 +31,11 @@ function ConfirmActionButton({ onConfirm, label = 'Delete', className = 'btn-sec
 
   return (
     <button
-      className={`${className} delete-btn${state === 'idle' ? '' : ' confirming'}${state === 'arming' ? ' arming' : ''}`}
+      className={`${className} confirm-btn ${variant}${state === 'idle' ? '' : ' confirming'}${state === 'arming' ? ' arming' : ''}`}
       onClick={() => (state === 'idle' ? setState('arming') : state === 'armed' && onConfirm())}
       onBlur={() => setState('idle')}
     >
-      <span className="delete-btn-label" key={state === 'idle' ? 'delete' : 'confirm'}>
+      <span className="confirm-btn-label" key={state === 'idle' ? 'delete' : 'confirm'}>
         {state === 'idle' ? label : 'Confirm?'}
       </span>
     </button>

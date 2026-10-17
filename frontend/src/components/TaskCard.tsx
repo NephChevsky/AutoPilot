@@ -183,7 +183,7 @@ function TaskCard({ task, repository, onStart, onUpdate, onMerge, onComplete, on
             <ConfirmActionButton label="Complete" onConfirm={() => onComplete(task.id)} />
           )}
           {task.status === 'WaitingForReview' && task.branchName && (
-            <ConfirmActionButton label="Merge" className="btn-primary" onConfirm={() => onMerge(task.id)} />
+            <ConfirmActionButton label="Merge" className="btn-primary" variant="success" onConfirm={() => onMerge(task.id)} />
           )}
         </div>
       </div>
