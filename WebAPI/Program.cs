@@ -46,6 +46,7 @@ namespace AutoPilot.WebAPI
 			builder.Services.AddJwtAuthenticationLib(builder.Configuration);
 			builder.Services.AddHttpClient();
 			builder.Services.AddHostedService<TaskService>();
+			builder.Services.AddScoped<ChatService>();
 
 			builder.Services.AddControllers(options =>
 			{
