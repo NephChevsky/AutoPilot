@@ -44,6 +44,22 @@ export function useRepositories() {
     }
   }
 
+  const createRepository = async (name: string): Promise<GithubRepository | null> => {
+    try {
+      const { data } = await api.post<GithubRepository>('/github/repositories', { name })
+      setRepositories((current) =>
+        [...current.filter((r) => r.id !== data.id), data].sort(
+          (a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name),
+        ),
+      )
+      return data
+    } catch (e) {
+      const message = (e as { response?: { data?: unknown } }).response?.data
+      toast.error(typeof message === 'string' && message ? message : 'Failed to create repository')
+      return null
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -64,5 +80,5 @@ export function useRepositories() {
     }
   }, [])
 
-  return { repositories, loading, error, refreshing, refresh, setPinned }
+  return { repositories, loading, error, refreshing, refresh, setPinned, createRepository }
 }

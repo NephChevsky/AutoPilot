@@ -14,7 +14,7 @@ const LED_LABELS: Record<LedKind, string> = {
 }
 
 function Sidebar() {
-  const { repositories, loading, error, refreshing, refresh, setPinned } = useRepositories()
+  const { repositories, loading, error, refreshing, refresh, setPinned, createRepository } = useRepositories()
   const leds = useRepositoryStatuses()
   const logout = useAuthStore((state) => state.logout)
   const navigate = useNavigate()
@@ -33,6 +33,13 @@ function Sidebar() {
     if (!window.confirm('Delete this conversation?')) return
     const deleted = await deleteChat(id)
     if (deleted && location.pathname === `/chats/${id}`) navigate('/chats')
+  }
+
+  const handleCreateRepository = async () => {
+    const name = window.prompt('New repository name (private):')?.trim()
+    if (!name) return
+    const created = await createRepository(name)
+    if (created) navigate(`/repositories/${created.id}`)
   }
 
   const handleLogout = async () => {
@@ -86,18 +93,30 @@ function Sidebar() {
       <nav className="sidebar-section themed-scroll">
         <div className="sidebar-section-header">
           <span className="sidebar-section-title">Repositories</span>
-          <button
-            className={`sidebar-refresh${refreshing ? ' spinning' : ''}`}
-            onClick={refresh}
-            disabled={refreshing}
-            title="Refresh repositories"
-            aria-label="Refresh repositories"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
-          </button>
+          <span style={{ display: 'flex', gap: 2 }}>
+            <button
+              className="sidebar-refresh"
+              onClick={handleCreateRepository}
+              title="New repository"
+              aria-label="New repository"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <button
+              className={`sidebar-refresh${refreshing ? ' spinning' : ''}`}
+              onClick={refresh}
+              disabled={refreshing}
+              title="Refresh repositories"
+              aria-label="Refresh repositories"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </button>
+          </span>
         </div>
         {loading && <div className="sidebar-message">Loading...</div>}
         {error && <div className="sidebar-message">Failed to load repositories.</div>}

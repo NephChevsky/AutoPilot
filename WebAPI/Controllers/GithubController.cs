@@ -24,6 +24,8 @@ namespace AutoPilot.WebAPI.Controllers
 
 		public record SetPinnedRequest(bool Pinned);
 
+		public record CreateRepositoryRequest(string? Name);
+
 		[HttpGet("repositories")]
 		public async Task<IActionResult> GetRepositories()
 		{
@@ -60,6 +62,67 @@ namespace AutoPilot.WebAPI.Controllers
 				.ExecuteUpdateAsync(s => s.SetProperty(r => r.Pinned, request.Pinned));
 
 			return updated == 0 ? NotFound() : NoContent();
+		}
+
+		[HttpPost("repositories")]
+		public async Task<IActionResult> CreateRepository(CreateRepositoryRequest request)
+		{
+			string name = request.Name?.Trim() ?? string.Empty;
+			if (name.Length == 0)
+			{
+				return BadRequest("Repository name is required.");
+			}
+
+			string? token = configuration["Github:Token"];
+			if (string.IsNullOrWhiteSpace(token))
+			{
+				logger.LogError("Github:Token is not configured");
+				return StatusCode(StatusCodes.Status500InternalServerError, "GitHub integration is not configured.");
+			}
+
+			GitHubClient client = new(new ProductHeaderValue("AutoPilot"))
+			{
+				Credentials = new Credentials(token)
+			};
+
+			try
+			{
+				GithubRepo github = await client.Repository.Create(new NewRepository(name) { Private = true, AutoInit = true });
+
+				DbRepository? repository = await dbContext.Repositories.FirstOrDefaultAsync(r => r.GithubId == github.Id);
+				if (repository is null)
+				{
+					repository = new DbRepository { GithubId = github.Id };
+					dbContext.Repositories.Add(repository);
+				}
+
+				repository.Name = github.Name;
+				repository.CloneUrl = github.CloneUrl;
+				repository.HtmlUrl = github.HtmlUrl;
+				repository.DefaultBranch = github.DefaultBranch;
+
+				await dbContext.SaveChangesAsync();
+
+				return Ok(new RepositoryResponse(repository.Id, repository.GithubId, repository.Name, repository.CloneUrl, repository.HtmlUrl, repository.DefaultBranch, repository.Pinned));
+			}
+			catch (RepositoryExistsException)
+			{
+				return Conflict("A repository with this name already exists.");
+			}
+			catch (RepositoryNameFormatException ex)
+			{
+				return UnprocessableEntity(ex.Message);
+			}
+			catch (ApiValidationException ex)
+			{
+				logger.LogWarning(ex, "GitHub rejected repository creation");
+				return UnprocessableEntity("GitHub rejected the repository name or settings.");
+			}
+			catch (ApiException ex)
+			{
+				logger.LogError(ex, "GitHub API error while creating repository");
+				return StatusCode(StatusCodes.Status502BadGateway, "Failed to create repository on GitHub.");
+			}
 		}
 
 		[HttpPost("repositories/refresh")]
