@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 
 namespace AutoPilot.WebAPI.Services
 {
-	public class TaskService(IServiceScopeFactory scopeFactory, IConfiguration configuration, ILogger<TaskService> logger) : BackgroundService
+	public class TaskService(IServiceScopeFactory scopeFactory, IConfiguration configuration, IHostEnvironment environment, ILogger<TaskService> logger) : BackgroundService
 	{
 		private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 		private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromMinutes(30);
@@ -516,7 +516,7 @@ namespace AutoPilot.WebAPI.Services
 		}
 
 		// One folder per repository, reused across tasks and never deleted
-		private static string GetRepositoryFolder(Repository repository) => Path.Combine(AppContext.BaseDirectory, "Repositories", repository.Id.ToString());
+		private string GetRepositoryFolder(Repository repository) => Path.Combine(environment.IsProduction() ? "/app/repositories" : Path.Combine(AppContext.BaseDirectory, "Repositories"), repository.Id.ToString());
 
 		private sealed class LockReleaser(SemaphoreSlim semaphore) : IDisposable
 		{
