@@ -22,11 +22,13 @@ namespace AutoPilot.WebAPI.Controllers
 
 		public record SendMessageRequest(string Message);
 
-		public record ChatSummaryResponse(Guid Id, string Title, DateTime CreationDateTime, DateTime UpdateDateTime);
+		public record ChatSummaryResponse(Guid Id, string Title, DateTime CreationDateTime, DateTime UpdateDateTime, decimal Cost);
 
-		public record ChatMessageResponse(Guid Id, ChatMessageRole Role, string Content, DateTime CreationDateTime);
+		public record ChatMessageResponse(Guid Id, ChatMessageRole Role, string Content, decimal? Cost, DateTime CreationDateTime);
 
-		public record ChatResponse(Guid Id, string Title, DateTime CreationDateTime, DateTime UpdateDateTime, List<ChatMessageResponse> Messages);
+		public record ChatCostsResponse(decimal Total, decimal Month);
+
+		public record ChatResponse(Guid Id, string Title, DateTime CreationDateTime, DateTime UpdateDateTime, List<ChatMessageResponse> Messages, decimal Cost);
 
 		private Guid? GetUserId()
 		{
@@ -34,14 +36,15 @@ namespace AutoPilot.WebAPI.Controllers
 			return Guid.TryParse(value, out Guid id) ? id : null;
 		}
 
-		private static ChatMessageResponse ToResponse(ChatMessage m) => new(m.Id, m.Role, m.Content, m.CreationDateTime);
+		private static ChatMessageResponse ToResponse(ChatMessage m) => new(m.Id, m.Role, m.Content, m.Cost, m.CreationDateTime);
 
 		private static ChatResponse ToResponse(Chat chat) => new(
 			chat.Id,
 			chat.Title,
 			chat.CreationDateTime,
 			chat.UpdateDateTime,
-			[.. chat.Messages.OrderBy(m => m.CreationDateTime).ThenBy(m => m.Role).Select(ToResponse)]);
+			[.. chat.Messages.OrderBy(m => m.CreationDateTime).ThenBy(m => m.Role).Select(ToResponse)],
+			chat.Messages.Sum(m => m.Cost ?? 0m));
 
 		private static string BuildTitle(string message)
 		{
@@ -60,10 +63,29 @@ namespace AutoPilot.WebAPI.Controllers
 			List<ChatSummaryResponse> chats = await dbContext.Chats.AsNoTracking()
 				.Where(c => c.UserId == userId)
 				.OrderByDescending(c => c.UpdateDateTime)
-				.Select(c => new ChatSummaryResponse(c.Id, c.Title, c.CreationDateTime, c.UpdateDateTime))
+				.Select(c => new ChatSummaryResponse(c.Id, c.Title, c.CreationDateTime, c.UpdateDateTime, c.Messages.Sum(m => m.Cost ?? 0m)))
 				.ToListAsync();
 
 			return Ok(chats);
+		}
+
+		// All-time and current (UTC) month cost of the user's chat messages
+		[HttpGet("costs")]
+		public async Task<IActionResult> GetCosts()
+		{
+			if (GetUserId() is not { } userId)
+			{
+				return Unauthorized();
+			}
+
+			DateTime now = DateTime.UtcNow;
+			DateTime monthStart = new(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+			IQueryable<ChatMessage> messages = dbContext.ChatMessages.AsNoTracking().Where(m => m.Chat!.UserId == userId && m.Cost != null);
+			decimal total = await messages.SumAsync(m => m.Cost ?? 0m);
+			decimal month = await messages.Where(m => m.CreationDateTime >= monthStart).SumAsync(m => m.Cost ?? 0m);
+
+			return Ok(new ChatCostsResponse(total, month));
 		}
 
 		[HttpGet("{id:guid}")]
@@ -196,7 +218,7 @@ namespace AutoPilot.WebAPI.Controllers
 				replyTime = userTime.AddTicks(1);
 			}
 			ChatMessage userMessage = new() { Chat = chat, Role = ChatMessageRole.User, Content = message, CreationDateTime = userTime };
-			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply.Content, CreationDateTime = replyTime };
+			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply.Content, Cost = reply.Cost, CreationDateTime = replyTime };
 			chat.SessionId = reply.SessionId;
 
 			if (dbContext.Entry(chat).State == EntityState.Detached)

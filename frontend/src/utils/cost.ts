@@ -7,7 +7,7 @@ export function computeCosts(tasks: RepositoryTask[], now: Date) {
     const cost = t.cost ?? 0
     total += cost
     const d = new Date(t.completionDateTime ?? t.creationDateTime)
-    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) monthly += cost
+    if (d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() === now.getUTCMonth()) monthly += cost
   }
   return { total, monthly }
 }
