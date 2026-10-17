@@ -12,7 +12,7 @@ namespace AutoPilot.WebAPI.Services
 		private const int MaxHistoryCharacters = 40000;
 		private static readonly TimeSpan ReplyTimeout = TimeSpan.FromMinutes(5);
 
-		public record ChatReply(string Content, string SessionId);
+		public record ChatReply(string Content, string SessionId, decimal? Cost);
 
 		// Plain Q&A: the Copilot session is resumed by id; if it is gone, a new one is created and the stored messages are replayed once
 		public async Task<ChatReply> AskAsync(string? sessionId, IReadOnlyList<ChatMessage> history, string message, CancellationToken cancellationToken)
@@ -74,6 +74,16 @@ namespace AutoPilot.WebAPI.Services
 			}, cancellationToken);
 #pragma warning restore GHCP001
 
+			// Subscribed before sending so usage reported before the final message is counted too
+			RunCost cost = new();
+			session.On<AssistantUsageEvent>(evt =>
+			{
+				if (evt.Data.CopilotUsage is { } usage)
+				{
+					cost.Add(usage.TotalNanoAiu);
+				}
+			});
+
 			AssistantMessageEvent? response;
 			try
 			{
@@ -104,7 +114,7 @@ namespace AutoPilot.WebAPI.Services
 				throw new InvalidOperationException("Empty response from the assistant");
 			}
 
-			return new ChatReply(content, activeSessionId);
+			return new ChatReply(content, activeSessionId, cost.Aiu > 0 ? cost.Aiu : null);
 		}
 
 		private static string BuildPrompt(IReadOnlyList<ChatMessage> history, string message)

@@ -340,16 +340,6 @@ namespace AutoPilot.WebAPI.Services
 			Infer = true,
 		};
 
-		// Thread-safe accumulator of the Copilot cost (in nano-AIU) of a single run; usage events may arrive concurrently
-		private sealed class RunCost
-		{
-			private long nanoAiu;
-
-			public void Add(double nano) => Interlocked.Add(ref nanoAiu, (long)Math.Round(nano));
-
-			public decimal Aiu => Interlocked.Read(ref nanoAiu) / 1_000_000_000m;
-		}
-
 		private async Task<string?> RunWithCopilotAsync(RepositoryTask task, string prompt, bool isFollowUp, RunCost cost, CancellationToken cancellationToken)
 		{
 			string token = configuration["Copilot:Token"]

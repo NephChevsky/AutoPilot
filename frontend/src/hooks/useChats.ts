@@ -7,12 +7,19 @@ export interface ChatSummary {
   title: string
   creationDateTime: string
   updateDateTime: string
+  cost: number
+}
+
+export interface ChatCosts {
+  total: number
+  month: number
 }
 
 export interface ChatMessage {
   id: string
   role: 'User' | 'Assistant'
   content: string
+  cost: number | null
   creationDateTime: string
 }
 
@@ -20,11 +27,12 @@ export interface Chat extends ChatSummary {
   messages: ChatMessage[]
 }
 
-const toSummary = ({ id, title, creationDateTime, updateDateTime }: Chat): ChatSummary => ({
+const toSummary = ({ id, title, creationDateTime, updateDateTime, cost }: Chat): ChatSummary => ({
   id,
   title,
   creationDateTime,
   updateDateTime,
+  cost,
 })
 
 // Newest first, like the API
