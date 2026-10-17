@@ -19,6 +19,11 @@ namespace AutoPilot.WebAPI.Database
 		{
 			base.OnModelCreating(modelBuilder);
 
+			// GenericDbContext registers the soft-delete and owner filters with separate HasQueryFilter calls, so the
+			// owner filter silently replaces the soft-delete one. Combine them for the IOwnable entities.
+			modelBuilder.Entity<Chat>().HasQueryFilter(e => !e.IsDeleted && e.Owner == CurrentUserId);
+			modelBuilder.Entity<ChatMessage>().HasQueryFilter(e => !e.IsDeleted && e.Owner == CurrentUserId);
+
 			modelBuilder.Entity<User>(entity =>
 			{
 				entity.Property(e => e.Name)
@@ -48,8 +53,10 @@ namespace AutoPilot.WebAPI.Database
 				entity.Property(e => e.Id)
 					.ValueGeneratedOnAdd();
 
+				// Partial so a soft-deleted repository does not block re-adding the same GitHub repo
 				entity.HasIndex(e => e.GithubId)
-					.IsUnique();
+					.IsUnique()
+					.HasFilter("is_deleted = false");
 
 				entity.Property(e => e.Name)
 					.IsRequired();
@@ -116,7 +123,7 @@ namespace AutoPilot.WebAPI.Database
 				entity.Property(e => e.Title)
 					.IsRequired();
 
-				entity.HasIndex(e => new { e.UserId, e.UpdateDateTime });
+				entity.HasIndex(e => new { e.UserId, e.UpdatedAt });
 
 				entity.HasOne(e => e.User)
 					.WithMany()

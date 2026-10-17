@@ -36,14 +36,14 @@ namespace AutoPilot.WebAPI.Controllers
 			return Guid.TryParse(value, out Guid id) ? id : null;
 		}
 
-		private static ChatMessageResponse ToResponse(ChatMessage m) => new(m.Id, m.Role, m.Content, m.Cost, m.CreationDateTime);
+		private static ChatMessageResponse ToResponse(ChatMessage m) => new(m.Id, m.Role, m.Content, m.Cost, m.CreatedAt);
 
 		private static ChatResponse ToResponse(Chat chat) => new(
 			chat.Id,
 			chat.Title,
-			chat.CreationDateTime,
-			chat.UpdateDateTime,
-			[.. chat.Messages.OrderBy(m => m.CreationDateTime).ThenBy(m => m.Role).Select(ToResponse)],
+			chat.CreatedAt,
+			chat.UpdatedAt,
+			[.. chat.Messages.OrderBy(m => m.CreatedAt).ThenBy(m => m.Role).Select(ToResponse)],
 			chat.Messages.Sum(m => m.Cost ?? 0m));
 
 		private static string BuildTitle(string message)
@@ -62,8 +62,8 @@ namespace AutoPilot.WebAPI.Controllers
 
 			List<ChatSummaryResponse> chats = await dbContext.Chats.AsNoTracking()
 				.Where(c => c.UserId == userId)
-				.OrderByDescending(c => c.UpdateDateTime)
-				.Select(c => new ChatSummaryResponse(c.Id, c.Title, c.CreationDateTime, c.UpdateDateTime, c.Messages.Sum(m => m.Cost ?? 0m)))
+				.OrderByDescending(c => c.UpdatedAt)
+				.Select(c => new ChatSummaryResponse(c.Id, c.Title, c.CreatedAt, c.UpdatedAt, c.Messages.Sum(m => m.Cost ?? 0m)))
 				.ToListAsync();
 
 			return Ok(chats);
@@ -83,7 +83,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 			IQueryable<ChatMessage> messages = dbContext.ChatMessages.AsNoTracking().Where(m => m.Chat!.UserId == userId && m.Cost != null);
 			decimal total = await messages.SumAsync(m => m.Cost ?? 0m);
-			decimal month = await messages.Where(m => m.CreationDateTime >= monthStart).SumAsync(m => m.Cost ?? 0m);
+			decimal month = await messages.Where(m => m.CreatedAt >= monthStart).SumAsync(m => m.Cost ?? 0m);
 
 			return Ok(new ChatCostsResponse(total, month));
 		}
@@ -162,7 +162,7 @@ namespace AutoPilot.WebAPI.Controllers
 					return NotFound("Chat not found.");
 				}
 
-				List<ChatMessage> history = [.. chat.Messages.OrderBy(m => m.CreationDateTime).ThenBy(m => m.Role)];
+				List<ChatMessage> history = [.. chat.Messages.OrderBy(m => m.CreatedAt).ThenBy(m => m.Role)];
 
 				return await AskAsync(chat, history, request.Message.Trim(), cancellationToken);
 			}
@@ -217,15 +217,15 @@ namespace AutoPilot.WebAPI.Controllers
 			{
 				replyTime = userTime.AddTicks(1);
 			}
-			ChatMessage userMessage = new() { Chat = chat, Role = ChatMessageRole.User, Content = message, CreationDateTime = userTime };
-			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply.Content, Cost = reply.Cost, CreationDateTime = replyTime };
+			ChatMessage userMessage = new() { Chat = chat, Role = ChatMessageRole.User, Content = message, CreatedAt = userTime };
+			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply.Content, Cost = reply.Cost, CreatedAt = replyTime };
 			chat.SessionId = reply.SessionId;
 
 			if (dbContext.Entry(chat).State == EntityState.Detached)
 			{
 				dbContext.Chats.Add(chat);
 			}
-			chat.UpdateDateTime = assistantMessage.CreationDateTime;
+			chat.UpdatedAt = assistantMessage.CreatedAt;
 			dbContext.ChatMessages.AddRange(userMessage, assistantMessage);
 			await dbContext.SaveChangesAsync(CancellationToken.None);
 

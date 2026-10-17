@@ -1,11 +1,12 @@
+using PostgresLib.Interfaces;
+
 namespace AutoPilot.WebAPI.Database.Models
 {
-	public class RepositoryTask
+	public class RepositoryTask : ISoftDeletable, IDateTimeTrackable
 	{
 		public Guid Id { get; set; }
 		public Guid RepositoryId { get; set; }
 		public Repository? Repository { get; set; }
-		public DateTime CreationDateTime { get; set; } = DateTime.UtcNow;
 		public DateTime? CompletionDateTime { get; set; }
 		public string Title { get; set; } = string.Empty;
 		public RepositoryTaskStatus Status { get; set; } = RepositoryTaskStatus.NotStarted;
@@ -16,5 +17,12 @@ namespace AutoPilot.WebAPI.Database.Models
 		// Accumulated Copilot cost of all runs of this task, in AI units (AIU)
 		public decimal? Cost { get; set; }
 		public List<Conversation> Conversations { get; set; } = [];
+
+		// ISoftDeletable
+		public bool IsDeleted { get; set; }
+
+		// IDateTimeTrackable
+		public DateTime CreatedAt { get; set; }
+		public DateTime UpdatedAt { get; set; }
 	}
 }

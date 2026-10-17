@@ -1,6 +1,8 @@
+using PostgresLib.Interfaces;
+
 namespace AutoPilot.WebAPI.Database.Models
 {
-	public class Conversation
+	public class Conversation : ISoftDeletable, IDateTimeTrackable
 	{
 		public Guid Id { get; set; }
 		public Guid TaskId { get; set; }
@@ -8,7 +10,13 @@ namespace AutoPilot.WebAPI.Database.Models
 		public ConversationAuthor Author { get; set; }
 		public ConversationType Type { get; set; } = ConversationType.Message;
 		public string Content { get; set; } = string.Empty;
-		public DateTime CreationDateTime { get; set; } = DateTime.UtcNow;
+
+		// ISoftDeletable
+		public bool IsDeleted { get; set; }
+
+		// IDateTimeTrackable
+		public DateTime CreatedAt { get; set; }
+		public DateTime UpdatedAt { get; set; }
 	}
 
 	public enum ConversationType
