@@ -21,6 +21,19 @@ function HomePage() {
   const taskCosts = computeCosts(tasks, now)
   const allCosts = { total: taskCosts.total + chatCosts.total, monthly: taskCosts.monthly + chatCosts.month }
 
+  const costEntries: { key: string; name: string; costs: { total: number; monthly: number } }[] = []
+  if (chatCosts.total > 0) {
+    costEntries.push({ key: 'chats', name: 'Chats', costs: { total: chatCosts.total, monthly: chatCosts.month } })
+  }
+  for (const repo of repositories) {
+    const costs = computeCosts(
+      tasks.filter((t) => t.repositoryId === repo.id),
+      now,
+    )
+    if (costs.total > 0) costEntries.push({ key: repo.id, name: repo.name, costs })
+  }
+  costEntries.sort((a, b) => b.costs.total - a.costs.total)
+
   return (
     <div className="page">
       <div className="page-header">
@@ -28,25 +41,12 @@ function HomePage() {
         <span className="page-cost">All — {formatCosts(allCosts)}</span>
       </div>
       <ul className="cost-list">
-        {chatCosts.total > 0 && (
-          <li className="cost-item">
-            <span className="cost-name">Chats</span>
-            <span className="page-cost">{formatCosts({ total: chatCosts.total, monthly: chatCosts.month })}</span>
+        {costEntries.map(({ key, name, costs }) => (
+          <li key={key} className="cost-item">
+            <span className="cost-name">{name}</span>
+            <span className="page-cost">{formatCosts(costs)}</span>
           </li>
-        )}
-        {repositories.map((repo) => {
-          const costs = computeCosts(
-            tasks.filter((t) => t.repositoryId === repo.id),
-            now,
-          )
-          if (costs.total === 0) return null
-          return (
-            <li key={repo.id} className="cost-item">
-              <span className="cost-name">{repo.name}</span>
-              <span className="page-cost">{formatCosts(costs)}</span>
-            </li>
-          )
-        })}
+        ))}
       </ul>
     </div>
   )
