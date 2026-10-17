@@ -109,10 +109,6 @@ namespace AutoPilot.WebAPI.Controllers
 			{
 				return Conflict("A repository with this name already exists.");
 			}
-			catch (RepositoryNameFormatException ex)
-			{
-				return UnprocessableEntity(ex.Message);
-			}
 			catch (ApiValidationException ex)
 			{
 				logger.LogWarning(ex, "GitHub rejected repository creation");
