@@ -23,10 +23,15 @@ RUN ln -s /usr/local/bin/python3 /usr/local/bin/python \
     && ln -s /usr/local/bin/pip3 /usr/local/bin/pip \
     && ldconfig
 
-# The task runner clones and commits to repositories
+# The task runner clones and commits to repositories; the lib* packages are Python's native deps missing from the aspnet image
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
+        libffi8 libsqlite3-0 libexpat1 libbz2-1.0 liblzma5 libreadline8t64 \
+        libncurses6 libuuid1 libzstd1 libgdbm6t64 \
     && rm -rf /var/lib/apt/lists/*
+
+# Smoke check: fail the build if Python's native modules or pip can't load
+RUN python3 -c "import ctypes, sqlite3, ssl, bz2, lzma, zlib, pyexpat, uuid" && pip --version
 
 # Commit identity for the agent (clone auth is injected at runtime from Github:Token)
 RUN git config --system user.name "AutoPilot" \
