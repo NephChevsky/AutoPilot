@@ -45,7 +45,10 @@ namespace AutoPilot.WebAPI
 			builder.Services.AddDiscordNotifierLib();
 			builder.Services.AddJwtAuthenticationLib(builder.Configuration);
 			builder.Services.AddHttpClient();
-			builder.Services.AddHostedService<TaskService>();
+			if (builder.Configuration.GetValue("TaskService:Enabled", true))
+			{
+				builder.Services.AddHostedService<TaskService>();
+			}
 			builder.Services.AddScoped<ChatService>();
 
 			builder.Services.AddControllers(options =>
