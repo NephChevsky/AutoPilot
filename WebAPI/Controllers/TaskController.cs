@@ -44,18 +44,18 @@ namespace AutoPilot.WebAPI.Controllers
 			}
 
 			List<TaskResponse> tasks = await query
-				.OrderByDescending(t => t.CreationDateTime)
+				.OrderByDescending(t => t.CreatedAt)
 				.Select(t => new TaskResponse(
 					t.Id,
 					t.RepositoryId,
-					t.CreationDateTime,
+					t.CreatedAt,
 					t.CompletionDateTime,
 					t.Title,
 					t.Status,
-					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot && c.Type == ConversationType.Message).OrderByDescending(c => c.CreationDateTime).Select(c => c.Content).FirstOrDefault(),
+					t.Conversations.Where(c => c.Author == ConversationAuthor.Autopilot && c.Type == ConversationType.Message).OrderByDescending(c => c.CreatedAt).Select(c => c.Content).FirstOrDefault(),
 					t.BranchName,
 					t.Cost,
-					t.Conversations.OrderBy(c => c.CreationDateTime).Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime)).ToList()))
+					t.Conversations.OrderBy(c => c.CreatedAt).Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreatedAt)).ToList()))
 				.ToListAsync();
 
 			return Ok(tasks);
@@ -112,8 +112,8 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.Tasks.Add(task);
 			await dbContext.SaveChangesAsync();
 
-			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Status, null, task.BranchName, task.Cost,
-				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))]));
+			return Ok(new TaskResponse(task.Id, task.RepositoryId, task.CreatedAt, task.CompletionDateTime, task.Title, task.Status, null, task.BranchName, task.Cost,
+				[.. task.Conversations.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreatedAt))]));
 		}
 
 		[HttpPut("{id:guid}")]
@@ -142,7 +142,7 @@ namespace AutoPilot.WebAPI.Controllers
 
 			Conversation? first = await dbContext.Conversations
 				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Neph)
-				.OrderBy(c => c.CreationDateTime)
+				.OrderBy(c => c.CreatedAt)
 				.FirstOrDefaultAsync();
 
 			task.Title = request.Title.Trim();
@@ -332,10 +332,10 @@ namespace AutoPilot.WebAPI.Controllers
 			task.BranchName = null;
 			DateTime? lastUserMessage = await dbContext.Conversations
 				.Where(c => c.TaskId == id && c.Author == ConversationAuthor.Neph)
-				.MaxAsync(c => (DateTime?)c.CreationDateTime);
+				.MaxAsync(c => (DateTime?)c.CreatedAt);
 			bool hasFollowUp = await dbContext.Conversations.CountAsync(c => c.TaskId == id && c.Author == ConversationAuthor.Neph) > 1;
 			await dbContext.Conversations
-				.Where(c => c.TaskId == id && c.Author != ConversationAuthor.Neph && (!hasFollowUp || c.CreationDateTime > lastUserMessage))
+				.Where(c => c.TaskId == id && c.Author != ConversationAuthor.Neph && (!hasFollowUp || c.CreatedAt > lastUserMessage))
 				.ExecuteDeleteAsync();
 			await dbContext.SaveChangesAsync();
 
@@ -386,11 +386,11 @@ namespace AutoPilot.WebAPI.Controllers
 		{
 			List<ConversationItemResponse> conversation = await dbContext.Conversations
 				.Where(c => c.TaskId == task.Id)
-				.OrderBy(c => c.CreationDateTime)
-				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreationDateTime))
+				.OrderBy(c => c.CreatedAt)
+				.Select(c => new ConversationItemResponse(c.Author, c.Type, c.Content, c.CreatedAt))
 				.ToListAsync();
 
-			return new TaskResponse(task.Id, task.RepositoryId, task.CreationDateTime, task.CompletionDateTime, task.Title, task.Status, null, task.BranchName, task.Cost, conversation);
+			return new TaskResponse(task.Id, task.RepositoryId, task.CreatedAt, task.CompletionDateTime, task.Title, task.Status, null, task.BranchName, task.Cost, conversation);
 		}
 
 		private static GitHubClient CreateGithubClient(string token) =>

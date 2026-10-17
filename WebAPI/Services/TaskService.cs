@@ -150,7 +150,7 @@ namespace AutoPilot.WebAPI.Services
 			RepositoryTask? task = await db.Tasks
 				.Include(t => t.Repository)
 				.Where(t => t.Status == RepositoryTaskStatus.PendingStart)
-				.OrderBy(t => t.CreationDateTime)
+				.OrderBy(t => t.CreatedAt)
 				.FirstOrDefaultAsync(cancellationToken);
 
 			if (task is null)
@@ -216,7 +216,7 @@ namespace AutoPilot.WebAPI.Services
 			{
 				List<string> userMessages = await db.Conversations
 					.Where(c => c.TaskId == task.Id && c.Author == ConversationAuthor.Neph)
-					.OrderBy(c => c.CreationDateTime)
+					.OrderBy(c => c.CreatedAt)
 					.Select(c => c.Content)
 					.ToListAsync(cancellationToken);
 				bool isFollowUp = userMessages.Count > 1 && Directory.Exists(GetRepositoryFolder(task.Id));

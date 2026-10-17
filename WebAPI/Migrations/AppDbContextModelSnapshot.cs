@@ -30,9 +30,19 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<DateTime>("CreationDateTime")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("creation_date_time");
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<Guid>("Owner")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner");
 
                     b.Property<string>("SessionId")
                         .HasColumnType("text")
@@ -43,9 +53,9 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("text")
                         .HasColumnName("title");
 
-                    b.Property<DateTime>("UpdateDateTime")
+                    b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("update_date_time");
+                        .HasColumnName("updated_at");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
@@ -54,8 +64,8 @@ namespace AutoPilot.WebAPI.Migrations
                     b.HasKey("Id")
                         .HasName("pk_chats");
 
-                    b.HasIndex("UserId", "UpdateDateTime")
-                        .HasDatabaseName("ix_chats_user_id_update_date_time");
+                    b.HasIndex("UserId", "UpdatedAt")
+                        .HasDatabaseName("ix_chats_user_id_updated_at");
 
                     b.ToTable("chats", (string)null);
                 });
@@ -80,14 +90,28 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("cost");
 
-                    b.Property<DateTime>("CreationDateTime")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("creation_date_time");
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<Guid>("Owner")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner");
 
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("role");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_chat_messages");
@@ -115,9 +139,15 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("text")
                         .HasColumnName("content");
 
-                    b.Property<DateTime>("CreationDateTime")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("creation_date_time");
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<Guid>("TaskId")
                         .HasColumnType("uuid")
@@ -127,6 +157,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_conversations");
@@ -147,6 +181,12 @@ namespace AutoPilot.WebAPI.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -188,6 +228,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("text")
                         .HasColumnName("clone_url");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
                     b.Property<string>("DefaultBranch")
                         .IsRequired()
                         .HasColumnType("text")
@@ -202,6 +246,12 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("text")
                         .HasColumnName("html_url");
 
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -211,12 +261,17 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("pinned");
 
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
                     b.HasKey("Id")
                         .HasName("pk_repositories");
 
                     b.HasIndex("GithubId")
                         .IsUnique()
-                        .HasDatabaseName("ix_repositories_github_id");
+                        .HasDatabaseName("ix_repositories_github_id")
+                        .HasFilter("is_deleted = false");
 
                     b.ToTable("repositories", (string)null);
                 });
@@ -240,13 +295,19 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("cost");
 
-                    b.Property<DateTime>("CreationDateTime")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("creation_date_time");
+                        .HasColumnName("created_at");
 
                     b.Property<DateTime?>("HeartbeatDateTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("heartbeat_date_time");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<Guid?>("ProcessingInstanceId")
                         .HasColumnType("uuid")
@@ -272,6 +333,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("text")
                         .HasColumnName("title");
 
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
                     b.HasKey("Id")
                         .HasName("pk_tasks");
 
@@ -288,6 +353,16 @@ namespace AutoPilot.WebAPI.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("citext")
@@ -302,6 +377,10 @@ namespace AutoPilot.WebAPI.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("role");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_users");
