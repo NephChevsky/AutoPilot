@@ -565,27 +565,66 @@ namespace AutoPilot.WebAPI.Services
 		{
 			string folder = GetRepositoryFolder(repository);
 
-			if (!Directory.Exists(Path.Combine(folder, ".git")))
+			try
 			{
-				await CloneRepositoryAsync(repository, folder, cancellationToken);
+				if (await IsValidCloneAsync(folder, cancellationToken))
+				{
+					return await SyncRepositoryAsync(task, repository, folder, isFollowUp, cancellationToken);
+				}
+			}
+			catch (InvalidOperationException)
+			{
+				// Corrupted clone: fall through and re-clone once
 			}
 
+			await CloneRepositoryAsync(repository, folder, cancellationToken);
+			return await SyncRepositoryAsync(task, repository, folder, isFollowUp, cancellationToken);
+		}
+
+		private async Task<bool> IsValidCloneAsync(string folder, CancellationToken cancellationToken)
+		{
+			if (!Directory.Exists(Path.Combine(folder, ".git")))
+			{
+				return false;
+			}
+
+			(int exitCode, _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--git-dir");
+			return exitCode == 0;
+		}
+
+		private async Task<string> SyncRepositoryAsync(RepositoryTask task, Repository repository, string folder, bool isFollowUp, CancellationToken cancellationToken)
+		{
 			string defaultBranch = string.IsNullOrWhiteSpace(repository.DefaultBranch) ? "master" : repository.DefaultBranch;
 			string branch = BuildBranchName(task);
 
+			// A stale lock from a killed git process would block every later command (we hold the repository lock)
+			string indexLock = Path.Combine(folder, ".git", "index.lock");
+			if (File.Exists(indexLock))
+			{
+				File.Delete(indexLock);
+			}
+
+			await RunGitCheckedAsync(folder, false, cancellationToken, "remote", "set-url", "origin", repository.CloneUrl);
 			await RunGitCheckedAsync(folder, true, cancellationToken, "fetch", "--prune", "origin");
 
 			if (isFollowUp)
 			{
 				// Continue on the task branch when it still exists
-				(int exitCode, _) = await RunGitAsync(folder, cancellationToken, "checkout", "--force", branch);
+				(int exitCode, _) = await RunGitAsync(folder, cancellationToken, "checkout", "--force", branch, "--");
 				if (exitCode == 0)
 				{
+					(int remoteExists, _) = await RunGitAsync(folder, cancellationToken, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{branch}");
+					if (remoteExists == 0)
+					{
+						await RunGitCheckedAsync(folder, false, cancellationToken, "reset", "--hard", $"origin/{branch}");
+					}
+
+					await RunGitCheckedAsync(folder, false, cancellationToken, "clean", "-fdx");
 					return folder;
 				}
 			}
 
-			await RunGitCheckedAsync(folder, false, cancellationToken, "checkout", "--force", defaultBranch);
+			await RunGitCheckedAsync(folder, false, cancellationToken, "checkout", "--force", defaultBranch, "--");
 			await RunGitCheckedAsync(folder, false, cancellationToken, "reset", "--hard", $"origin/{defaultBranch}");
 			await RunGitCheckedAsync(folder, false, cancellationToken, "clean", "-fdx");
 
