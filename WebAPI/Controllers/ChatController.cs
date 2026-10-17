@@ -22,11 +22,11 @@ namespace AutoPilot.WebAPI.Controllers
 
 		public record SendMessageRequest(string Message);
 
-		public record ChatSummaryResponse(Guid Id, string Title, 		DateTime CreationDateTime, DateTime UpdateDateTime, decimal Cost);
+		public record ChatSummaryResponse(Guid Id, string Title, DateTime CreationDateTime, DateTime UpdateDateTime, decimal Cost);
 
-				public record ChatMessageResponse(Guid Id, ChatMessageRole Role, string Content, decimal? Cost, DateTime CreationDateTime);
+		public record ChatMessageResponse(Guid Id, ChatMessageRole Role, string Content, decimal? Cost, DateTime CreationDateTime);
 
-				public record ChatCostsResponse(decimal Total, decimal Month);
+		public record ChatCostsResponse(decimal Total, decimal Month);
 
 		public record ChatResponse(Guid Id, string Title, DateTime CreationDateTime, DateTime UpdateDateTime, List<ChatMessageResponse> Messages, decimal Cost);
 
