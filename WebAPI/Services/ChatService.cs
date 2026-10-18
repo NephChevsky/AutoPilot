@@ -12,6 +12,9 @@ namespace AutoPilot.WebAPI.Services
 		private const int MaxHistoryCharacters = 40000;
 		private static readonly TimeSpan ReplyTimeout = TimeSpan.FromMinutes(5);
 
+		private const int MaxTitleSourceCharacters = 4000;
+		private static readonly TimeSpan TitleTimeout = TimeSpan.FromSeconds(45);
+
 		public record ChatReply(string Content, string SessionId, decimal? Cost);
 
 		// Plain Q&A: the Copilot session is resumed by id; if it is gone, a new one is created and the stored messages are replayed once
@@ -116,6 +119,70 @@ namespace AutoPilot.WebAPI.Services
 
 			return new ChatReply(content, activeSessionId, cost.Aiu > 0 ? cost.Aiu : null);
 		}
+
+		// Separate one-shot query (fresh session, not the chat's one) that asks the model for a short conversation title
+		public async Task<string?> GenerateTitleAsync(string userMessage, string assistantReply, CancellationToken cancellationToken)
+		{
+			string token = configuration["Copilot:Token"]
+				?? throw new InvalidOperationException("Copilot:Token is not configured");
+
+			string chatFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoPilot", "chat");
+			Directory.CreateDirectory(chatFolder);
+
+			using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+			timeoutSource.CancelAfter(TitleTimeout);
+
+			await using CopilotClient client = new(new CopilotClientOptions
+			{
+				GitHubToken = token,
+				Mode = CopilotClientMode.Empty,
+				BaseDirectory = chatFolder,
+				WorkingDirectory = chatFolder,
+			});
+
+			try
+			{
+				await client.StartAsync(timeoutSource.Token);
+
+#pragma warning disable GHCP001
+				await using CopilotSession session = await client.CreateSessionAsync(new SessionConfig
+				{
+					SessionId = Guid.NewGuid().ToString(),
+					Model = CopilotModel,
+					ReasoningEffort = CopilotReasoningEffort,
+					WorkingDirectory = chatFolder,
+					AvailableTools = [],
+					ExcludedTools = ["builtin:*"],
+					Memory = new MemoryConfiguration { Enabled = false },
+					EnableSessionStore = false,
+					OnPermissionRequest = (_, _) => Task.FromResult(PermissionDecision.Reject("Tools are not available in chat"))
+				}, timeoutSource.Token);
+#pragma warning restore GHCP001
+
+				string prompt = "Write a concise title (at most 6 words) for the conversation below. "
+					+ "Use the same language as the conversation. Do not use quotes, punctuation at the end or markdown. "
+					+ "Reply with the title only.\n\n"
+					+ $"User: {Truncate(userMessage)}\n\nAssistant: {Truncate(assistantReply)}";
+
+				AssistantMessageEvent? response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, TitleTimeout, timeoutSource.Token);
+				return response?.Data.Content;
+			}
+			catch (OperationCanceledException)
+			{
+				try
+				{
+					await client.ForceStopAsync();
+				}
+				catch (Exception ex)
+				{
+					logger.LogWarning(ex, "Could not stop the title agent process");
+				}
+
+				throw;
+			}
+		}
+
+		private static string Truncate(string text) => text.Length <= MaxTitleSourceCharacters ? text : text[..MaxTitleSourceCharacters];
 
 		private static string BuildPrompt(IReadOnlyList<ChatMessage> history, string message)
 		{
