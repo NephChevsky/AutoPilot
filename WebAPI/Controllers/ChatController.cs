@@ -12,7 +12,7 @@ namespace AutoPilot.WebAPI.Controllers
 	[ApiController]
 	[Authorize]
 	[Route("api/[controller]")]
-	public class ChatController(AppDbContext dbContext, ChatService chatService, ILogger<ChatController> logger) : ControllerBase
+	public class ChatController(AppDbContext dbContext, ChatService chatService, ChatTitleService chatTitleService, ILogger<ChatController> logger) : ControllerBase
 	{
 		private const int MaxTitleLength = 60;
 		private const int MaxMessageLength = 8000;
@@ -221,13 +221,20 @@ namespace AutoPilot.WebAPI.Controllers
 			ChatMessage assistantMessage = new() { Chat = chat, Role = ChatMessageRole.Assistant, Content = reply.Content, Cost = reply.Cost, CreatedAt = replyTime };
 			chat.SessionId = reply.SessionId;
 
-			if (dbContext.Entry(chat).State == EntityState.Detached)
+			bool isNewChat = dbContext.Entry(chat).State == EntityState.Detached;
+			if (isNewChat)
 			{
 				dbContext.Chats.Add(chat);
 			}
 			chat.UpdatedAt = assistantMessage.CreatedAt;
 			dbContext.ChatMessages.AddRange(userMessage, assistantMessage);
 			await dbContext.SaveChangesAsync(CancellationToken.None);
+
+			// The title is generated and stored in the background; the reply does not wait for it
+			if (isNewChat)
+			{
+				chatTitleService.Enqueue(chat.Id, chat.Title, message, reply.Content);
+			}
 
 			return Ok(ToResponse(chat));
 		}
