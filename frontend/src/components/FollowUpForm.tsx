@@ -21,7 +21,10 @@ function FollowUpForm({ onSubmit }: { onSubmit: (message: string) => Promise<boo
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing && (!e.shiftKey || e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            submit()
+          }
         }}
       />
       <button className="btn-primary" disabled={!message.trim() || sending} onClick={submit}>
