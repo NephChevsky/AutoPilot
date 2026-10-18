@@ -13,7 +13,7 @@ namespace AutoPilot.WebAPI.Services
 		private static readonly TimeSpan ReplyTimeout = TimeSpan.FromMinutes(5);
 
 		private const int MaxTitleSourceCharacters = 4000;
-		private static readonly TimeSpan TitleTimeout = TimeSpan.FromSeconds(45);
+		private static readonly TimeSpan TitleTimeout = TimeSpan.FromSeconds(30);
 
 		public record ChatReply(string Content, string SessionId, decimal? Cost);
 

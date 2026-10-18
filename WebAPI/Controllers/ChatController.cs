@@ -12,7 +12,7 @@ namespace AutoPilot.WebAPI.Controllers
 	[ApiController]
 	[Authorize]
 	[Route("api/[controller]")]
-	public class ChatController(AppDbContext dbContext, ChatService chatService, ILogger<ChatController> logger) : ControllerBase
+	public class ChatController(AppDbContext dbContext, ChatService chatService, ChatTitleService chatTitleService, ILogger<ChatController> logger) : ControllerBase
 	{
 		private const int MaxTitleLength = 60;
 		private const int MaxMessageLength = 8000;
@@ -230,43 +230,13 @@ namespace AutoPilot.WebAPI.Controllers
 			dbContext.ChatMessages.AddRange(userMessage, assistantMessage);
 			await dbContext.SaveChangesAsync(CancellationToken.None);
 
-			// Best effort: the messages are already stored, so a title failure keeps the placeholder title
+			// The title is generated and stored in the background; the reply does not wait for it
 			if (isNewChat)
 			{
-				try
-				{
-					string? title = SanitizeTitle(await chatService.GenerateTitleAsync(message, reply.Content, cancellationToken));
-					if (title is not null)
-					{
-						chat.Title = title;
-						await dbContext.SaveChangesAsync(CancellationToken.None);
-					}
-				}
-				catch (Exception ex)
-				{
-					logger.LogWarning(ex, "Could not generate a title for chat {ChatId}, keeping the placeholder", chat.Id);
-				}
+				chatTitleService.Enqueue(chat.Id, chat.Title, message, reply.Content);
 			}
 
 			return Ok(ToResponse(chat));
-		}
-
-		private static string? SanitizeTitle(string? raw)
-		{
-			if (string.IsNullOrWhiteSpace(raw))
-			{
-				return null;
-			}
-
-			string firstLine = raw.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
-			string title = string.Join(' ', firstLine.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
-				.Trim().Trim('"', '\'', '`', '“', '”', '‘', '’', '«', '»', '*', '#').Trim();
-			if (title.Length == 0)
-			{
-				return null;
-			}
-
-			return title.Length <= MaxTitleLength ? title : title[..MaxTitleLength].TrimEnd();
 		}
 	}
 }

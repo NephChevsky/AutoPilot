@@ -50,6 +50,7 @@ namespace AutoPilot.WebAPI
 				builder.Services.AddHostedService<TaskService>();
 			}
 			builder.Services.AddScoped<ChatService>();
+			builder.Services.AddSingleton<ChatTitleService>();
 
 			builder.Services.AddControllers(options =>
 			{
