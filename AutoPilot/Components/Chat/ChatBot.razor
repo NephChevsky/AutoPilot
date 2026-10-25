@@ -340,7 +340,17 @@
                     case ChatEntryKind.Assistant:
                         <div class="entry assistant @(entry.IsSubagent ? "subagent" : "")">
                             <div class="author">@entry.Author</div>
-                            <div class="bubble markdown">@((MarkupString)MarkdownRenderer.ToHtml(entry.Text))</div>
+                            @if (AgentStatus.TryExtract(entry.Text, out var agentStatus, out var statusRemainder))
+                            {
+                                <div class="bubble markdown">
+                                    <span class="status-badge @StatusClass(agentStatus)">@agentStatus</span>
+                                    <div class="markdown">@((MarkupString)MarkdownRenderer.ToHtml(statusRemainder))</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="bubble markdown">@((MarkupString)MarkdownRenderer.ToHtml(entry.Text))</div>
+                            }
                         </div>
                         break;
                     case ChatEntryKind.Tool:
@@ -430,6 +440,13 @@
 </div>
 
 @code {
+    private static string StatusClass(string status) => AgentStatus.Categorize(status) switch
+    {
+        AgentStatusKind.Success => "success",
+        AgentStatusKind.Failure => "failure",
+        AgentStatusKind.Warning => "warning",
+        _ => "neutral",
+    };
     private IReadOnlyList<AgentDefinition> _agents = [];
     private string? _loadError;
     private string? _listError;
