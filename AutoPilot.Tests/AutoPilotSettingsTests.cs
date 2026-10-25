@@ -32,6 +32,24 @@ namespace AutoPilot.Tests
             Assert.Equal(Path.GetFullPath(path), settings.ResolveWorktreesDirectory());
         }
 
+        [Fact]
+        public void ResolveWorktreesDirectory_for_repository_defaults_to_sibling_of_repository()
+        {
+            var repo = Path.Combine(Path.GetTempPath(), "parent", "my-repo") + Path.DirectorySeparatorChar;
+            var settings = new AutoPilotSettings { WorkingDirectory = Path.Combine(Path.GetTempPath(), "parent") };
+
+            Assert.Equal(Path.Combine(Path.GetTempPath(), "parent", "my-repo") + ".worktrees", settings.ResolveWorktreesDirectory(repo));
+        }
+
+        [Fact]
+        public void ResolveWorktreesDirectory_for_repository_uses_configured_path_with_repository_name()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "wt");
+            var settings = new AutoPilotSettings { WorktreesDirectory = root };
+
+            Assert.Equal(Path.Combine(Path.GetFullPath(root), "my-repo"), settings.ResolveWorktreesDirectory(Path.Combine(Path.GetTempPath(), "parent", "my-repo")));
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData("   ")]

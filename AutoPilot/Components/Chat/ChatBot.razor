@@ -6,6 +6,7 @@
 @inject UsageLedger Ledger
 @inject AgentCatalog Catalog
 @inject IOptions<AutoPilotSettings> Settings
+@inject RepositoryCatalog Repositories
 
 <div class="chat-layout">
 <aside class="conversations">
@@ -18,12 +19,14 @@
         <div class="entry error">@_listError</div>
     }
     <ul class="conversation-list">
-        @foreach (var conversation in _conversations)
+        @foreach (var item in _conversations)
         {
+            var conversation = item.Session;
             <li>
                 <button type="button" class="conversation @(conversation.SessionId == Chat.CurrentSessionId ? "active" : "")"
-                        disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" @onclick="() => OpenAsync(conversation.SessionId)">
+                        disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" @onclick="() => OpenAsync(item)">
                     <span class="conversation-title">@(string.IsNullOrWhiteSpace(conversation.Summary) ? "Untitled conversation" : conversation.Summary)</span>
+                    <small class="conversation-repo">@item.Repository.Name</small>
                     <small>@conversation.ModifiedTime.ToLocalTime().ToString("g")</small>
                     @if (Ledger.Get(conversation.SessionId) is { } saved)
                     {
@@ -58,6 +61,10 @@
             }
         </div>
         <div class="cost-summary">
+            @if (Chat.CurrentRepository is { } currentRepository)
+            {
+                <div class="repo-name" title="Conversation repository">Repository: @currentRepository.Name</div>
+            }
             @if (Chat.CurrentBranch is { } branch)
             {
                 <div class="branch-name" title="Conversation branch">Branch: @branch</div>
@@ -107,7 +114,7 @@
             @if (_mergeConfirm && Chat.CurrentBranch is { } mergeBranch)
             {
                 <div class="merge-confirm">
-                    <span>Merge <strong>@mergeBranch</strong> into the branch currently checked out in the working directory, push that branch to <strong>@Settings.Value.GitRemote</strong>, and delete the conversation's worktree and local branch?</span>
+                    <span>Merge <strong>@mergeBranch</strong> of repository <strong>@Chat.CurrentRepository?.Name</strong> into the branch currently checked out in that repository, push that branch to <strong>@Settings.Value.GitRemote</strong>, and delete the conversation's worktree and local branch?</span>
                     <button type="button" class="btn" @onclick="ConfirmMergeAsync" disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">Confirm merge</button>
                     <button type="button" class="btn secondary" @onclick="CancelMerge" disabled="@Chat.IsMerging">Cancel</button>
                 </div>
@@ -269,6 +276,26 @@
     }
 
     <form class="composer" @onsubmit="SendAsync">
+        @if (Chat.CurrentSessionId is null && !Chat.IsBusy)
+        {
+            @if (_repositories.Count == 0)
+            {
+                <div class="repo-empty">No repositories found in @Settings.Value.ResolveWorkingDirectory()</div>
+            }
+            else
+            {
+                <select class="repo-select" aria-label="Repository" @onchange="OnRepositoryChanged" disabled="@(Chat.IsLoading || Chat.IsMerging)">
+                    @if (Chat.SelectedRepository is null)
+                    {
+                        <option value="" selected>Select a repository...</option>
+                    }
+                    @foreach (var repository in _repositories)
+                    {
+                        <option value="@repository.Path" selected="@(repository.Path == Chat.SelectedRepository?.Path)">@repository.Name</option>
+                    }
+                </select>
+            }
+        }
         <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" />
         @if (Chat.IsBusy)
         {
@@ -276,7 +303,7 @@
         }
         else
         {
-                    <button type="submit" class="btn" disabled="@(Chat.IsLoading || Chat.IsMerging || string.IsNullOrWhiteSpace(_draft))">Send</button>
+                    <button type="submit" class="btn" disabled="@(Chat.IsLoading || Chat.IsMerging || string.IsNullOrWhiteSpace(_draft) || (Chat.CurrentSessionId is null && Chat.SelectedRepository is null))">Send</button>
         }
     </form>
 </div>
@@ -286,7 +313,8 @@
     private IReadOnlyList<AgentDefinition> _agents = [];
     private string? _loadError;
     private string? _listError;
-    private IReadOnlyList<SessionMetadata> _conversations = [];
+    private IReadOnlyList<ConversationSummary> _conversations = [];
+    private IReadOnlyList<RepositoryInfo> _repositories = [];
     private string? _listedSessionId;
     private bool _wasBusy;
     private bool _isDisposed;
@@ -442,7 +470,36 @@
         Ledger.Changed += OnLedgerChanged;
         _listedSessionId = Chat.CurrentSessionId;
         _wasBusy = Chat.IsBusy;
+        RefreshRepositories();
         _ = RefreshConversationsAsync();
+    }
+
+    /// <summary>Re-runs repository discovery and keeps the selection valid (auto-selects the only repository).</summary>
+    private void RefreshRepositories()
+    {
+        _repositories = Repositories.GetRepositories();
+        if (Chat.CurrentSessionId is not null)
+        {
+            return;
+        }
+
+        var selected = Chat.SelectedRepository;
+        var match = selected is null ? null : _repositories.FirstOrDefault(r => string.Equals(r.Path, selected.Path, StringComparison.OrdinalIgnoreCase));
+        if (match is null && _repositories.Count == 1)
+        {
+            match = _repositories[0];
+        }
+
+        if (!Equals(match, selected))
+        {
+            Chat.SelectRepository(match);
+        }
+    }
+
+    private void OnRepositoryChanged(ChangeEventArgs e)
+    {
+        var path = e.Value?.ToString();
+        Chat.SelectRepository(_repositories.FirstOrDefault(r => r.Path == path));
     }
 
     private async Task RefreshConversationsAsync()
@@ -481,12 +538,12 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task OpenAsync(string sessionId)
+    private async Task OpenAsync(ConversationSummary conversation)
     {
         ResetDiff();
         _draft = "";
         _answer = "";
-        await Chat.LoadConversationAsync(sessionId);
+        await Chat.LoadConversationAsync(conversation);
     }
 
     private async Task SendAsync()
@@ -509,6 +566,7 @@
         _draft = "";
         _answer = "";
         await Chat.ResetAsync();
+        RefreshRepositories();
     }
 
     private bool IsOrchestrator(AgentDefinition agent) =>

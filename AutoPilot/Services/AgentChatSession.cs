@@ -3,6 +3,9 @@ using Microsoft.Extensions.Options;
 
 namespace AutoPilot.Services
 {
+    /// <summary>A persisted conversation and the repository it belongs to.</summary>
+    public sealed record ConversationSummary(SessionMetadata Session, RepositoryInfo Repository);
+
     /// <summary>
     /// One chat conversation (scoped per Blazor circuit). The session starts on the orchestrator agent and
     /// registers every other agent of the catalog as a custom sub-agent it can delegate to.
@@ -12,7 +15,7 @@ namespace AutoPilot.Services
         AgentCatalog catalog,
         IOptions<AutoPilotSettings> options,
         UsageLedger ledger,
-        ConversationWorktrees worktrees,
+        RepositoryCatalog repositories,
         ILogger<AgentChatSession> logger) : IAsyncDisposable
     {
         private readonly Lock _gate = new();
@@ -49,11 +52,34 @@ namespace AutoPilot.Services
         /// <summary>Saved cost of the open conversation (null until it has been recorded).</summary>
         public SessionCost? CurrentCost { get; private set; }
 
+        /// <summary>Repository chosen for the next new conversation; null until chosen.</summary>
+        public RepositoryInfo? SelectedRepository { get; private set; }
+
+        /// <summary>Repository of the open conversation; null when none is open.</summary>
+        public RepositoryInfo? CurrentRepository { get; private set; }
+
+        /// <summary>Chooses the repository of the next new conversation. Ignored once a conversation is open or while busy, loading or merging.</summary>
+        public void SelectRepository(RepositoryInfo? repository)
+        {
+            if (CurrentSessionId is not null || IsBusy || IsLoading || IsMerging)
+            {
+                return;
+            }
+
+            SelectedRepository = repository;
+        }
+
         public IReadOnlyList<ChatEntry> GetEntries() => _transcript.GetEntries();
 
         public async Task SendAsync(string prompt)
         {
             if (string.IsNullOrWhiteSpace(prompt) || IsBusy || IsLoading || IsMerging)
+            {
+                return;
+            }
+
+            var repository = CurrentRepository ?? SelectedRepository;
+            if (_session is null && repository is null)
             {
                 return;
             }
@@ -65,7 +91,7 @@ namespace AutoPilot.Services
 
             try
             {
-                _session ??= await CreateSessionAsync(resumeSessionId: null);
+                _session ??= await CreateSessionAsync(resumeSessionId: null, repository!);
                 await _session.SendAsync(new MessageOptions { Prompt = prompt.Trim() });
             }
             catch (Exception ex)
@@ -74,6 +100,7 @@ namespace AutoPilot.Services
                 if (_session is null)
                 {
                     CurrentBranch = null;
+                    CurrentRepository = null;
                 }
                 Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = ex.Message });
                 IsBusy = false;
@@ -125,6 +152,7 @@ namespace AutoPilot.Services
             _transcript.Clear();
             CurrentSessionId = null;
             CurrentBranch = null;
+            CurrentRepository = null;
             IsBusy = false;
             await NotifyAsync();
         }
@@ -133,12 +161,12 @@ namespace AutoPilot.Services
         public Task<ConversationDiff?> GetCurrentDiffAsync(CancellationToken cancellationToken = default)
         {
             var sessionId = CurrentSessionId;
-            if (sessionId is null || CurrentBranch is null)
+            if (sessionId is null || CurrentBranch is null || CurrentRepository is null)
             {
                 return Task.FromResult<ConversationDiff?>(null);
             }
 
-            return worktrees.GetDiffAsync(sessionId, cancellationToken);
+            return repositories.GetWorktrees(CurrentRepository).GetDiffAsync(sessionId, cancellationToken);
         }
 
         /// <summary>
@@ -149,11 +177,13 @@ namespace AutoPilot.Services
         public async Task<ConversationMergeResult?> MergeCurrentAsync(CancellationToken cancellationToken = default)
         {
             var sessionId = CurrentSessionId;
-            if (sessionId is null || CurrentBranch is null || IsBusy || IsLoading || IsMerging)
+            var repository = CurrentRepository;
+            if (sessionId is null || CurrentBranch is null || repository is null || IsBusy || IsLoading || IsMerging)
             {
                 return null;
             }
 
+            var worktrees = repositories.GetWorktrees(repository);
             IsMerging = true;
             ConversationMergeResult result;
             try
@@ -169,7 +199,7 @@ namespace AutoPilot.Services
                     // Nothing was merged (cancellation is only honoured before the merge starts); reopen the conversation and propagate.
                     try
                     {
-                        await LoadConversationCoreAsync(sessionId);
+                        await LoadConversationCoreAsync(sessionId, repository);
                     }
                     catch (Exception ex)
                     {
@@ -184,7 +214,7 @@ namespace AutoPilot.Services
                     result = new ConversationMergeResult(ConversationMergeStatus.Rejected, $"Merge failed: {ex.Message}");
                 }
 
-                await LoadConversationCoreAsync(sessionId);
+                await LoadConversationCoreAsync(sessionId, repository);
                 var success = result.Status is ConversationMergeStatus.Merged or ConversationMergeStatus.CleanupFailed;
                 Add(new ChatEntry
                 {
@@ -208,20 +238,35 @@ namespace AutoPilot.Services
             await CloseSessionAsync();
         }
 
-        /// <summary>Lists previous conversations of the configured working directory and of its conversation worktrees, newest first.</summary>
-        public async Task<IReadOnlyList<SessionMetadata>> ListConversationsAsync(CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Lists previous conversations of every discovered repository (its main directory or its conversation worktrees),
+        /// newest first, each paired with its repository. Sessions of other directories are excluded.
+        /// </summary>
+        public async Task<IReadOnlyList<ConversationSummary>> ListConversationsAsync(CancellationToken cancellationToken = default)
         {
             var settings = options.Value;
-            var expected = NormalizePath(settings.ResolveWorkingDirectory());
-            var worktreesRoot = NormalizePath(settings.ResolveWorktreesDirectory());
+            var scopes = repositories.GetRepositories()
+                .Select(r => (Repository: r, Main: NormalizePath(r.Path), WorktreesRoot: NormalizePath(settings.ResolveWorktreesDirectory(r.Path))))
+                .ToList();
             // The shared client auto-starts on its first call and a canceled start permanently breaks it (every later call
             // throws TaskCanceledException), so start it uncancelably; the caller's token only abandons the wait.
             await client.StartAsync(CancellationToken.None).WaitAsync(cancellationToken);
             // The server filter is an exact match, so worktree conversations are selected client-side.
             var sessions = await client.ListSessionsAsync(null, cancellationToken);
-            return [.. sessions
-                .Where(s => IsConversationDirectory(s.Context?.WorkingDirectory, expected, worktreesRoot))
-                .OrderByDescending(s => s.ModifiedTime)];
+            var result = new List<ConversationSummary>();
+            foreach (var session in sessions.OrderByDescending(s => s.ModifiedTime))
+            {
+                foreach (var scope in scopes)
+                {
+                    if (IsConversationDirectory(session.Context?.WorkingDirectory, scope.Main, scope.WorktreesRoot))
+                    {
+                        result.Add(new ConversationSummary(session, scope.Repository));
+                        break;
+                    }
+                }
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -250,18 +295,19 @@ namespace AutoPilot.Services
                 || normalized.StartsWith(worktreesRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>Closes the current conversation and opens a persisted one, replaying its transcript. No-op while busy.</summary>
-        public async Task LoadConversationAsync(string sessionId)
+        /// <summary>Closes the current conversation and opens a persisted one in its repository, replaying its transcript. No-op while busy.</summary>
+        public async Task LoadConversationAsync(ConversationSummary conversation)
         {
-            if (string.IsNullOrWhiteSpace(sessionId) || IsBusy || IsLoading || IsMerging)
+            ArgumentNullException.ThrowIfNull(conversation);
+            if (IsBusy || IsLoading || IsMerging)
             {
                 return;
             }
 
-            await LoadConversationCoreAsync(sessionId);
+            await LoadConversationCoreAsync(conversation.Session.SessionId, conversation.Repository);
         }
 
-        private async Task LoadConversationCoreAsync(string sessionId)
+        private async Task LoadConversationCoreAsync(string sessionId, RepositoryInfo repository)
         {
             IsLoading = true;
             CopilotSession? session = null;
@@ -272,8 +318,9 @@ namespace AutoPilot.Services
                 _transcript.Clear();
                 CurrentSessionId = null;
                 CurrentBranch = null;
+                CurrentRepository = null;
 
-                session = await CreateSessionAsync(sessionId);
+                session = await CreateSessionAsync(sessionId, repository);
                 var events = await session.GetEventsAsync(CancellationToken.None);
                 _transcript.Replay(events);
                 _session = session;
@@ -298,6 +345,7 @@ namespace AutoPilot.Services
                 await CloseSessionAsync();
                 CurrentSessionId = null;
                 CurrentBranch = null;
+                CurrentRepository = null;
                 Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = $"Failed to load conversation: {ex.Message}" });
             }
             finally
@@ -312,7 +360,7 @@ namespace AutoPilot.Services
             Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         /// <summary>Creates a new session, or resumes <paramref name="resumeSessionId"/>, with identical agents, tools and handlers.</summary>
-        private async Task<CopilotSession> CreateSessionAsync(string? resumeSessionId)
+        private async Task<CopilotSession> CreateSessionAsync(string? resumeSessionId, RepositoryInfo repository)
         {
             var settings = options.Value;
             var agents = catalog.LoadAgents();
@@ -322,8 +370,9 @@ namespace AutoPilot.Services
 
             // New conversation: pre-generate the id so the branch and worktree can be named after it.
             // Existing conversation: legacy ones (no dedicated branch) keep running in the main directory.
-            string sessionDirectory = settings.ResolveWorkingDirectory();
+            string sessionDirectory = repository.Path;
             string? branch = null;
+            var worktrees = repositories.GetWorktrees(repository);
             var sessionId = resumeSessionId ?? Guid.NewGuid().ToString();
             if (resumeSessionId is null || await worktrees.BranchExistsAsync(resumeSessionId, CancellationToken.None))
             {
@@ -368,6 +417,7 @@ namespace AutoPilot.Services
                 });
                 await TakeBaselineAsync(resumed, resumed: true);
                 CurrentBranch = branch;
+                CurrentRepository = repository;
                 return resumed;
             }
 
@@ -389,6 +439,7 @@ namespace AutoPilot.Services
             _subscription = session.On<SessionEvent>(OnSessionEvent);
             CurrentSessionId = session.SessionId;
             CurrentBranch = branch;
+            CurrentRepository = repository;
             await TakeBaselineAsync(session, resumed: false);
             return session;
         }
