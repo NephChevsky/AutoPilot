@@ -103,9 +103,169 @@ public class ConversationMergeAcceptanceTests : IDisposable
         AssertKept(repo, ws);
     }
 
-    // AC-3, AC-4
+    private string TrackingRef(string repo, string branch) =>
+        Git(repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/" + branch).Code == 0 ? "yes" : "";
+
+    private void PushConversationBranch(ConversationWorkspace ws) =>
+        G(ws.Directory, "push", "-q", "origin", "HEAD:refs/heads/" + ws.Branch);
+
+    // AC-2 helper: add an extra commit to the remote conversation branch from another clone
+    private string PushExtraCommitFromOtherClone(ConversationWorkspace ws)
+    {
+        var other = Path.Combine(_root, "other-clone");
+        G(_root, "clone", "-q", _bare, other);
+        G(other, "config", "user.name", "O");
+        G(other, "config", "user.email", "o@example.com");
+        G(other, "config", "commit.gpgsign", "false");
+        G(other, "checkout", "-q", "-B", ws.Branch, "origin/" + ws.Branch);
+        File.WriteAllText(Path.Combine(other, "extra.txt"), "extra\n");
+        G(other, "add", "-A");
+        G(other, "commit", "-q", "-m", "extra on remote");
+        G(other, "push", "-q", "origin", "HEAD:refs/heads/" + ws.Branch);
+        return RemoteRef("refs/heads/" + ws.Branch);
+    }
+
+    // AC-1, AC-6
     [Fact]
-    public async Task HappyPath_MergesNoFf_Pushes_Cleans_RemoteBranchUntouched()
+    public async Task AC1_RemoteConversationBranch_IsDeleted_AndTrackingRefGone()
+    {
+        var (repo, wt, ws) = await Setup();
+        PushConversationBranch(ws);
+        Assert.NotEmpty(RemoteRef("refs/heads/" + ws.Branch));
+        Assert.Equal("yes", TrackingRef(repo, ws.Branch));
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.Merged, r.Status);
+        Assert.Equal("", RemoteRef("refs/heads/" + ws.Branch));
+        Assert.Equal("", TrackingRef(repo, ws.Branch));
+        Assert.Equal(G(repo, "rev-parse", "HEAD"), RemoteRef("refs/heads/main"));
+        Assert.False(Directory.Exists(ws.Directory));
+        Assert.False(BranchExists(repo, ws.Branch));
+        Assert.Contains("remote", r.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // AC-2
+    [Fact]
+    public async Task AC2_RemoteTipNotInMerge_KeptAndCleanupFailed()
+    {
+        var (repo, wt, ws) = await Setup();
+        PushConversationBranch(ws);
+        var extraTip = PushExtraCommitFromOtherClone(ws);
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.CleanupFailed, r.Status);
+        Assert.Equal(extraTip, RemoteRef("refs/heads/" + ws.Branch));
+        Assert.Contains(ws.Branch, r.Message);
+        Assert.Equal("main", r.TargetBranch);
+        Assert.Equal(r.MergeCommit, G(repo, "rev-parse", "HEAD"));
+        Assert.Equal(G(repo, "rev-parse", "HEAD"), RemoteRef("refs/heads/main"));
+        Assert.False(string.IsNullOrWhiteSpace(r.Message));
+    }
+
+    // AC-3
+    [Fact]
+    public async Task AC3_RemoteBranchNeverPushed_MergedAsBefore()
+    {
+        var (repo, wt, ws) = await Setup();
+        Assert.Equal("", RemoteRef("refs/heads/" + ws.Branch));
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.Merged, r.Status);
+        Assert.Equal("", RemoteRef("refs/heads/" + ws.Branch));
+        Assert.False(Directory.Exists(ws.Directory));
+        Assert.False(BranchExists(repo, ws.Branch));
+    }
+
+    // AC-4
+    [Fact]
+    public async Task AC4_RemoteDeleteDenied_LocalCleanupStillDone_CleanupFailedNamesBranchAndError()
+    {
+        var (repo, wt, ws) = await Setup();
+        PushConversationBranch(ws);
+        var tip = RemoteRef("refs/heads/" + ws.Branch);
+        G(_root, "--git-dir=" + _bare, "config", "receive.denyDeletes", "true");
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.CleanupFailed, r.Status);
+        Assert.Equal(tip, RemoteRef("refs/heads/" + ws.Branch));
+        Assert.Contains(ws.Branch, r.Message);
+        Assert.Contains("den", r.Message, StringComparison.OrdinalIgnoreCase); // git: "denying ref deletion"
+        Assert.False(Directory.Exists(ws.Directory));
+        Assert.False(BranchExists(repo, ws.Branch));
+        Assert.Equal("main", r.TargetBranch);
+        Assert.Equal(G(repo, "rev-parse", "HEAD"), RemoteRef("refs/heads/main"));
+    }
+
+    // AC-5
+    [Fact]
+    public async Task AC5_Conflict_RemoteConversationBranchKept()
+    {
+        var (repo, wt, ws) = await Setup(commitWork: false);
+        File.WriteAllText(Path.Combine(ws.Directory, "shared.txt"), "from conversation\n");
+        G(ws.Directory, "add", "-A");
+        G(ws.Directory, "commit", "-q", "-m", "conv");
+        PushConversationBranch(ws);
+        var tip = RemoteRef("refs/heads/" + ws.Branch);
+        File.WriteAllText(Path.Combine(repo, "shared.txt"), "from main\n");
+        G(repo, "add", "-A");
+        G(repo, "commit", "-q", "-m", "main edit");
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.Conflict, r.Status);
+        Assert.Equal(tip, RemoteRef("refs/heads/" + ws.Branch));
+        Assert.Equal("yes", TrackingRef(repo, ws.Branch));
+        AssertKept(repo, ws);
+    }
+
+    // AC-5
+    [Fact]
+    public async Task AC5_Rejected_RemoteConversationBranchKept()
+    {
+        var (repo, wt, ws) = await Setup();
+        PushConversationBranch(ws);
+        var tip = RemoteRef("refs/heads/" + ws.Branch);
+        File.WriteAllText(Path.Combine(ws.Directory, "README.md"), "changed\n");
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.Rejected, r.Status);
+        Assert.Equal(tip, RemoteRef("refs/heads/" + ws.Branch));
+    }
+
+    // AC-5
+    [Fact]
+    public async Task AC5_PushFailed_RemoteConversationBranchKept()
+    {
+        var (repo, wt, ws) = await Setup();
+        PushConversationBranch(ws);
+        var tip = RemoteRef("refs/heads/" + ws.Branch);
+        // advance remote main from another clone so the target push is rejected
+        var other = Path.Combine(_root, "other");
+        G(_root, "clone", "-q", _bare, other);
+        G(other, "config", "user.name", "O");
+        G(other, "config", "user.email", "o@example.com");
+        G(other, "config", "commit.gpgsign", "false");
+        G(other, "checkout", "-q", "-B", "main");
+        File.WriteAllText(Path.Combine(other, "remote-only.txt"), "r\n");
+        G(other, "add", "-A");
+        G(other, "commit", "-q", "-m", "remote work");
+        G(other, "push", "-q", "origin", "main");
+
+        var r = await wt.MergeAsync("sess1", "origin", _ct);
+
+        Assert.Equal(ConversationMergeStatus.PushFailed, r.Status);
+        Assert.Equal(tip, RemoteRef("refs/heads/" + ws.Branch));
+        AssertKept(repo, ws);
+    }
+
+    // Formerly asserted the remote branch was kept (old behavior); now it is deleted (AC-1, AC-6)
+    [Fact]
+    public async Task HappyPath_MergesNoFf_Pushes_Cleans_DeletesRemoteBranch()
     {
         var (repo, wt, ws) = await Setup();
         G(ws.Directory, "push", "-q", "origin", ws.Branch);
@@ -124,7 +284,7 @@ public class ConversationMergeAcceptanceTests : IDisposable
         Assert.Equal(head, RemoteRef("refs/heads/main"));
         Assert.False(Directory.Exists(ws.Directory));
         Assert.False(BranchExists(repo, ws.Branch));
-        Assert.Equal(remoteBranchBefore, RemoteRef("refs/heads/" + ws.Branch));
+        Assert.Equal("", RemoteRef("refs/heads/" + ws.Branch));
         Assert.False(await wt.BranchExistsAsync("sess1", _ct));
     }
 

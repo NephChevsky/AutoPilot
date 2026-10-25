@@ -24,6 +24,12 @@ namespace AutoPilot.Tests
         private static string RemoteRev(string remote, string reference) =>
             GitFixture.Git(Path.GetDirectoryName(remote)!, "--git-dir", remote, "rev-parse", reference);
 
+        private static bool RemoteBranchExists(GitFixture fixture, string branch) =>
+            GitFixture.Git(Path.GetDirectoryName(fixture.Remote)!, "--git-dir", fixture.Remote, "branch", "--list", branch).Length > 0;
+
+        private static bool TrackingRefExists(GitFixture fixture, string branch) =>
+            GitFixture.Git(fixture.Repo, "for-each-ref", $"refs/remotes/origin/{branch}").Length > 0;
+
         private static bool BranchExists(GitFixture fixture, string branch) =>
             GitFixture.Git(fixture.Repo, "branch", "--list", branch).Length > 0;
 
@@ -33,7 +39,8 @@ namespace AutoPilot.Tests
             using var fixture = new GitFixture();
             var (worktrees, worktree) = await StartAsync(fixture);
             GitFixture.Git(worktree, "push", "origin", $"HEAD:refs/heads/{Branch}");
-            var remoteBranchBefore = RemoteRev(fixture.Remote, $"refs/heads/{Branch}");
+            Assert.True(RemoteBranchExists(fixture, Branch));
+            Assert.True(TrackingRefExists(fixture, Branch));
 
             var result = await worktrees.MergeAsync(Id, "origin", CancellationToken.None);
 
@@ -44,10 +51,73 @@ namespace AutoPilot.Tests
             Assert.Equal(2, GitFixture.Git(fixture.Repo, "rev-list", "--parents", "-n", "1", "HEAD").Split(' ').Length - 1);
             Assert.True(File.Exists(Path.Combine(fixture.Repo, "feature.txt")));
             Assert.Equal(head, RemoteRev(fixture.Remote, "refs/heads/main"));
-            Assert.Equal(remoteBranchBefore, RemoteRev(fixture.Remote, $"refs/heads/{Branch}"));
+            Assert.False(RemoteBranchExists(fixture, Branch));
+            Assert.False(TrackingRefExists(fixture, Branch));
+            Assert.Contains("remote branch", result.Message);
             Assert.False(Directory.Exists(worktree));
             Assert.False(BranchExists(fixture, Branch));
             Assert.False(await worktrees.BranchExistsAsync(Id, CancellationToken.None));
+        }
+
+        [Fact]
+        public async Task Merges_when_branch_was_never_pushed()
+        {
+            using var fixture = new GitFixture();
+            var (worktrees, worktree) = await StartAsync(fixture);
+
+            var result = await worktrees.MergeAsync(Id, "origin", CancellationToken.None);
+
+            Assert.Equal(ConversationMergeStatus.Merged, result.Status);
+            Assert.False(RemoteBranchExists(fixture, Branch));
+            Assert.False(Directory.Exists(worktree));
+            Assert.False(BranchExists(fixture, Branch));
+        }
+
+        [Fact]
+        public async Task Remote_branch_with_unmerged_commits_is_kept_and_reported()
+        {
+            using var fixture = new GitFixture();
+            var (worktrees, worktree) = await StartAsync(fixture);
+            GitFixture.Git(worktree, "push", "origin", $"HEAD:refs/heads/{Branch}");
+            var clone = Path.Combine(Path.GetDirectoryName(fixture.Repo)!, "clone");
+            GitFixture.Git(Path.GetDirectoryName(fixture.Repo)!, "clone", "-b", Branch, fixture.Remote, clone);
+            GitFixture.Git(clone, "config", "user.name", "Other");
+            GitFixture.Git(clone, "config", "user.email", "other@example.com");
+            File.WriteAllText(Path.Combine(clone, "extra.txt"), "extra");
+            GitFixture.Git(clone, "add", "--all");
+            GitFixture.Git(clone, "commit", "-m", "extra");
+            GitFixture.Git(clone, "push", "origin", $"HEAD:refs/heads/{Branch}");
+            var remoteTip = RemoteRev(fixture.Remote, $"refs/heads/{Branch}");
+
+            var result = await worktrees.MergeAsync(Id, "origin", CancellationToken.None);
+
+            Assert.Equal(ConversationMergeStatus.CleanupFailed, result.Status);
+            Assert.Contains(Branch, result.Message);
+            Assert.Contains("not contained", result.Message);
+            Assert.Equal(GitFixture.Git(fixture.Repo, "rev-parse", "HEAD"), result.MergeCommit);
+            Assert.Equal(result.MergeCommit, RemoteRev(fixture.Remote, "refs/heads/main"));
+            Assert.Equal(remoteTip, RemoteRev(fixture.Remote, $"refs/heads/{Branch}"));
+            Assert.False(Directory.Exists(worktree));
+            Assert.False(BranchExists(fixture, Branch));
+        }
+
+        [Fact]
+        public async Task Remote_branch_deletion_failure_still_cleans_up_locally_and_names_branch()
+        {
+            using var fixture = new GitFixture();
+            var (worktrees, worktree) = await StartAsync(fixture);
+            GitFixture.Git(worktree, "push", "origin", $"HEAD:refs/heads/{Branch}");
+            GitFixture.Git(fixture.Repo, "--git-dir", fixture.Remote, "config", "receive.denyDeletes", "true");
+
+            var result = await worktrees.MergeAsync(Id, "origin", CancellationToken.None);
+
+            Assert.Equal(ConversationMergeStatus.CleanupFailed, result.Status);
+            Assert.Contains(Branch, result.Message);
+            Assert.Contains("delete it manually", result.Message);
+            Assert.Equal(result.MergeCommit, RemoteRev(fixture.Remote, "refs/heads/main"));
+            Assert.True(RemoteBranchExists(fixture, Branch));
+            Assert.False(Directory.Exists(worktree));
+            Assert.False(BranchExists(fixture, Branch));
         }
 
         [Fact]

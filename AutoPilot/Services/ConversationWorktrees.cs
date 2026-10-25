@@ -138,7 +138,9 @@ namespace AutoPilot.Services
 
         /// <summary>
         /// Merges the conversation branch (<c>--no-ff</c>) into the branch checked out in the repository directory, pushes that
-        /// branch to <paramref name="remote"/> (never forced) and deletes the conversation's worktree and local branch.
+        /// branch to <paramref name="remote"/> (never forced) and deletes the conversation's worktree and local branch. The conversation
+        /// branch on the remote is deleted too, but only if it exists and its tip is contained in the merge result; otherwise it is kept
+        /// and the result is <see cref="ConversationMergeStatus.CleanupFailed"/>, as it is when deleting it fails (local cleanup still runs).
         /// Git failures and invalid input are reported through the result; only cancellation throws.
         /// </summary>
         public async Task<ConversationMergeResult> MergeAsync(string sessionId, string remote, CancellationToken cancellationToken)
@@ -261,6 +263,13 @@ namespace AutoPilot.Services
                         target, commit);
                 }
 
+                var problems = new List<string>();
+                var remoteProblem = await DeleteRemoteBranchAsync(remote, branch, none);
+                if (remoteProblem is not null)
+                {
+                    problems.Add(remoteProblem);
+                }
+
                 try
                 {
                     if (await IsRegisteredWorktreeAsync(worktree, none))
@@ -277,14 +286,19 @@ namespace AutoPilot.Services
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
                 {
-                    logger?.LogWarning(ex, "Cleanup of {Branch} failed after a successful merge and push.", branch);
+                    logger?.LogWarning(ex, "Local cleanup of {Branch} failed after a successful merge and push.", branch);
+                    problems.Add($"local cleanup failed: {ex.Message}");
+                }
+
+                if (problems.Count > 0)
+                {
                     return new ConversationMergeResult(ConversationMergeStatus.CleanupFailed,
-                        $"Merged '{branch}' into '{target}' (commit {commit}) and pushed to '{remote}', but cleanup failed: {ex.Message}", target, commit);
+                        $"Merged '{branch}' into '{target}' (commit {commit}) and pushed to '{remote}', but cleanup failed: {string.Join(" ", problems)}", target, commit);
                 }
 
                 logger?.LogInformation("Merged {Branch} into {Target} ({Commit}), pushed to {Remote} and cleaned up.", branch, target, commit, remote);
                 return new ConversationMergeResult(ConversationMergeStatus.Merged,
-                    $"Merged '{branch}' into '{target}' (commit {commit}), pushed to '{remote}' and deleted the worktree and local branch.", target, commit);
+                    $"Merged '{branch}' into '{target}' (commit {commit}), pushed to '{remote}' and deleted the worktree, local branch and remote branch.", target, commit);
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
             {
@@ -295,6 +309,59 @@ namespace AutoPilot.Services
             {
                 _gate.Release();
             }
+        }
+
+        /// <summary>
+        /// Deletes <c>refs/heads/&lt;branch&gt;</c> on <paramref name="remote"/> if it exists and its tip is contained in HEAD.
+        /// The deletion is guarded by a lease on the observed tip. Returns null when nothing is left to do, otherwise a problem description.
+        /// </summary>
+        private async Task<string?> DeleteRemoteBranchAsync(string remote, string branch, CancellationToken none)
+        {
+            var refName = $"refs/heads/{branch}";
+            var listed = await RunGitAsync(["ls-remote", "--heads", remote, refName], none);
+            if (listed.TimedOut || listed.ExitCode != 0)
+            {
+                logger?.LogWarning("Listing {Ref} on {Remote} failed.", refName, remote);
+                return $"could not check whether remote branch '{branch}' exists on '{remote}', so it was not deleted; delete it manually if needed. {(listed.TimedOut ? "Timed out." : listed.StdErr.Trim())}".TrimEnd();
+            }
+
+            string? sha = null;
+            foreach (var line in listed.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parts = line.Split('\t', 2);
+                if (parts.Length == 2 && parts[1] == refName)
+                {
+                    sha = parts[0];
+                    break;
+                }
+            }
+
+            if (sha is null)
+            {
+                return null;
+            }
+
+            var contained = await RunGitAsync(["merge-base", "--is-ancestor", sha, "HEAD"], none);
+            if (contained.TimedOut || contained.ExitCode != 0)
+            {
+                return $"remote branch '{branch}' on '{remote}' was kept because its tip {sha} is not contained in the merged result (it may have commits that were not merged); delete it manually if it is no longer needed.";
+            }
+
+            var delete = await RunGitAsync(["push", remote, $"--force-with-lease={refName}:{sha}", "--delete", refName], none);
+            if (delete.TimedOut || delete.ExitCode != 0)
+            {
+                logger?.LogWarning("Deleting {Ref} on {Remote} failed.", refName, remote);
+                return $"could not delete remote branch '{branch}' on '{remote}'; delete it manually. {(delete.TimedOut ? "Timed out." : delete.StdErr.Trim())}".TrimEnd();
+            }
+
+            var tracking = $"refs/remotes/{remote}/{branch}";
+            var exists = await RunGitAsync(["show-ref", "--verify", "--quiet", tracking], none);
+            if (!exists.TimedOut && exists.ExitCode == 0)
+            {
+                await RunGitAsync(["update-ref", "-d", tracking], none);
+            }
+
+            return null;
         }
 
         private static ConversationMergeResult Rejected(string message, string? target = null) =>
