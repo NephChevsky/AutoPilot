@@ -7,6 +7,8 @@ namespace AutoPilot.Services
         Tool,
         Activity,
         Error,
+        Reasoning,
+        Intent,
     }
 
     public sealed class ChatEntry

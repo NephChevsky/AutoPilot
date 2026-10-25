@@ -425,6 +425,37 @@
         font-style: italic;
     }
 
+    .entry.reasoning {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+        .entry.reasoning .author {
+            margin: 0;
+            color: var(--agent-color, #495057);
+        }
+
+        .entry.reasoning summary {
+            cursor: pointer;
+        }
+
+        .entry.reasoning .reasoning-body {
+            margin-top: 0.3rem;
+            padding: 0.3rem 0.6rem;
+            border-left: 3px solid var(--agent-color, #dee2e6);
+            font-style: italic;
+        }
+
+    .entry.intent {
+        align-self: flex-start;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--agent-color, #6c757d);
+        background: var(--agent-bg, #f1f3f5);
+        border-radius: 999px;
+        padding: 0.1rem 0.7rem;
+    }
+
     .entry.error {
         align-self: stretch;
         max-width: none;

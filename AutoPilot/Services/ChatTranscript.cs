@@ -89,10 +89,38 @@ namespace AutoPilot.Services
                         return true;
 
                     case AssistantMessageDeltaEvent delta:
-                        return UpsertMessage(delta.Data.MessageId, delta.AgentId, delta.Data.DeltaContent, append: true);
+                        return Upsert(ChatEntryKind.Assistant, delta.Data.MessageId, delta.AgentId, delta.Data.DeltaContent, append: true);
 
                     case AssistantMessageEvent message:
-                        return UpsertMessage(message.Data.MessageId, message.AgentId, message.Data.Content, append: false);
+                        return Upsert(ChatEntryKind.Assistant, message.Data.MessageId, message.AgentId, message.Data.Content, append: false);
+
+                    case AssistantReasoningDeltaEvent reasoningDelta:
+                        return Upsert(ChatEntryKind.Reasoning, reasoningDelta.Data.ReasoningId, reasoningDelta.AgentId, reasoningDelta.Data.DeltaContent, append: true);
+
+                    case AssistantReasoningEvent reasoning:
+                        return Upsert(ChatEntryKind.Reasoning, reasoning.Data.ReasoningId, reasoning.AgentId, reasoning.Data.Content, append: false);
+
+                    case AssistantIntentEvent intentEvent:
+                        var intent = intentEvent.Data.Intent?.Trim();
+                        if (string.IsNullOrEmpty(intent))
+                        {
+                            return false;
+                        }
+
+                        var intentAuthor = ResolveAgentUnlocked(intentEvent.AgentId);
+                        if (_entries.FindLast(e => e.Kind == ChatEntryKind.Intent && e.Author == intentAuthor)?.Text == intent)
+                        {
+                            return false;
+                        }
+
+                        _entries.Add(new ChatEntry
+                        {
+                            Kind = ChatEntryKind.Intent,
+                            Author = intentAuthor,
+                            IsSubagent = intentEvent.AgentId is not null,
+                            Text = intent,
+                        });
+                        return true;
 
                     case ToolExecutionStartEvent toolStart when toolStart.Data.ToolName != TaskToolName:
                         _entries.Add(new ChatEntry
@@ -190,9 +218,9 @@ namespace AutoPilot.Services
             }
         }
 
-        private bool UpsertMessage(string messageId, string? agentId, string? content, bool append)
+        private bool Upsert(ChatEntryKind kind, string key, string? agentId, string? content, bool append)
         {
-            var entry = _entries.FindLast(e => e.Kind == ChatEntryKind.Assistant && e.Key == messageId);
+            var entry = _entries.FindLast(e => e.Kind == kind && e.Key == key);
             if (entry is null)
             {
                 if (string.IsNullOrEmpty(content))
@@ -202,8 +230,8 @@ namespace AutoPilot.Services
 
                 _entries.Add(new ChatEntry
                 {
-                    Kind = ChatEntryKind.Assistant,
-                    Key = messageId,
+                    Kind = kind,
+                    Key = key,
                     Author = ResolveAgentUnlocked(agentId),
                     IsSubagent = agentId is not null,
                     Text = content,
@@ -211,11 +239,16 @@ namespace AutoPilot.Services
                 return true;
             }
 
+            if (string.IsNullOrEmpty(content))
+            {
+                return false;
+            }
+
             if (append)
             {
                 entry.Text += content;
             }
-            else if (!string.IsNullOrEmpty(content))
+            else
             {
                 entry.Text = content;
             }
