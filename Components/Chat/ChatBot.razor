@@ -39,7 +39,7 @@
                     case ChatEntryKind.Assistant:
                         <div class="entry assistant @(entry.IsSubagent ? "subagent" : "")">
                             <div class="author">@entry.Author</div>
-                            <div class="bubble">@entry.Text</div>
+                            <div class="bubble markdown">@((MarkupString)MarkdownRenderer.ToHtml(entry.Text))</div>
                         </div>
                         break;
                     case ChatEntryKind.Tool:
@@ -68,7 +68,7 @@
     @if (Chat.PendingQuestion is { } question)
     {
         <div class="question">
-            <div class="question-text">@question.Question</div>
+            <div class="question-text markdown">@((MarkupString)MarkdownRenderer.ToHtml(question.Question))</div>
             @if (question.Choices is { Count: > 0 } choices)
             {
                 <div class="choices">

@@ -10,7 +10,15 @@
 
   <ItemGroup>
     <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.26" />
+    <PackageReference Include="Markdig" Version="1.5.0" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="AutoPilot.Tests\**" />
+    <Content Remove="AutoPilot.Tests\**" />
+    <None Remove="AutoPilot.Tests\**" />
+    <EmbeddedResource Remove="AutoPilot.Tests\**" />
   </ItemGroup>
 
   <ItemGroup>
