@@ -150,6 +150,9 @@ namespace AutoPilot.Services
             var settings = options.Value;
             var expected = NormalizePath(settings.ResolveWorkingDirectory());
             var worktreesRoot = NormalizePath(settings.ResolveWorktreesDirectory());
+            // The shared client auto-starts on its first call and a canceled start permanently breaks it (every later call
+            // throws TaskCanceledException), so start it uncancelably; the caller's token only abandons the wait.
+            await client.StartAsync(CancellationToken.None).WaitAsync(cancellationToken);
             // The server filter is an exact match, so worktree conversations are selected client-side.
             var sessions = await client.ListSessionsAsync(null, cancellationToken);
             return [.. sessions
