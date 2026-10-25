@@ -11,13 +11,24 @@ builder.Services.AddRazorComponents()
 
 builder.Services.Configure<AutoPilotSettings>(builder.Configuration.GetSection(AutoPilotSettings.SectionName));
 builder.Services.AddSingleton<AgentCatalog>();
-builder.Services.AddSingleton(sp => new CopilotClient(new CopilotClientOptions
+builder.Services.AddSingleton(sp =>
 {
-    WorkingDirectory = sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveWorkingDirectory(),
-    // Falls back to the logged-in user when no token is configured.
-    GitHubToken = string.IsNullOrWhiteSpace(builder.Configuration["Copilot:Token"]) ? null : builder.Configuration["Copilot:Token"],
-    Logger = sp.GetRequiredService<ILogger<CopilotClient>>(),
-}));
+    var settings = sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value;
+    var copilotDirectory = settings.ResolveCopilotDirectory();
+    if (copilotDirectory is not null)
+    {
+        Directory.CreateDirectory(copilotDirectory);
+    }
+
+    return new CopilotClient(new CopilotClientOptions
+    {
+        WorkingDirectory = settings.ResolveWorkingDirectory(),
+        BaseDirectory = copilotDirectory,
+        // Falls back to the logged-in user when no token is configured.
+        GitHubToken = string.IsNullOrWhiteSpace(builder.Configuration["Copilot:Token"]) ? null : builder.Configuration["Copilot:Token"],
+        Logger = sp.GetRequiredService<ILogger<CopilotClient>>(),
+    });
+});
 builder.Services.AddScoped<AgentChatSession>();
 
 var app = builder.Build();

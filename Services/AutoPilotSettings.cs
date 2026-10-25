@@ -7,6 +7,9 @@ namespace AutoPilot.Services
         /// <summary>Repository the agents work on. Defaults to the process working directory.</summary>
         public string WorkingDirectory { get; set; } = "";
 
+        /// <summary>Folder where the Copilot runtime stores its data (sessions, config, state). Empty uses the runtime default (~/.copilot).</summary>
+        public string CopilotDirectory { get; set; } = "";
+
         /// <summary>Folder containing the agent *.md files, relative to the content root.</summary>
         public string AgentsDirectory { get; set; } = "Agents";
 
@@ -22,5 +25,10 @@ namespace AutoPilot.Services
             string.IsNullOrWhiteSpace(WorkingDirectory)
                 ? Directory.GetCurrentDirectory()
                 : Path.GetFullPath(WorkingDirectory);
+
+        public string? ResolveCopilotDirectory() =>
+            string.IsNullOrWhiteSpace(CopilotDirectory)
+                ? null
+                : Path.GetFullPath(CopilotDirectory);
     }
 }
