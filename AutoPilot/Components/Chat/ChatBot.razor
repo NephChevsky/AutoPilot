@@ -395,17 +395,10 @@
                     }
                 </div>
             }
-            @if (question.AllowFreeform != false)
-            {
-                <form class="composer" @onsubmit="AnswerAsync">
-                    <input @bind="_answer" @bind:event="oninput" placeholder="Your answer..." />
-                    <button type="submit" class="btn" disabled="@string.IsNullOrWhiteSpace(_answer)">Answer</button>
-                </form>
-            }
         </div>
     }
 
-    <form class="composer" @onsubmit="SendAsync">
+    <form class="composer" @onsubmit="SubmitAsync">
         @if (Chat.CurrentSessionId is null && !Chat.IsBusy)
         {
             @if (_repositories.Count == 0)
@@ -426,14 +419,23 @@
                 </select>
             }
         }
-        <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" />
-        @if (Chat.IsBusy)
+        @if (Chat.PendingQuestion is { } pending)
         {
+            <input @bind="_draft" @bind:event="oninput" placeholder="Your answer..." disabled="@(pending.AllowFreeform == false || Chat.IsLoading || Chat.IsMerging)" />
+            <button type="submit" class="btn" disabled="@(pending.AllowFreeform == false || Chat.IsLoading || Chat.IsMerging || string.IsNullOrWhiteSpace(_draft))">Answer</button>
             <button type="button" class="btn danger" @onclick="Chat.AbortAsync">Stop</button>
         }
         else
         {
-                    <button type="submit" class="btn" disabled="@(Chat.IsLoading || Chat.IsMerging || string.IsNullOrWhiteSpace(_draft) || (Chat.CurrentSessionId is null && Chat.SelectedRepository is null))">Send</button>
+            <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" />
+            @if (Chat.IsBusy)
+            {
+                <button type="button" class="btn danger" @onclick="Chat.AbortAsync">Stop</button>
+            }
+            else
+            {
+                <button type="submit" class="btn" disabled="@(Chat.IsLoading || Chat.IsMerging || string.IsNullOrWhiteSpace(_draft) || (Chat.CurrentSessionId is null && Chat.SelectedRepository is null))">Send</button>
+            }
         }
     </form>
 </div>
@@ -458,7 +460,6 @@
     private int _refreshVersion;
     private CancellationTokenSource _disposed = new();
     private string _draft = "";
-    private string _answer = "";
     private bool _diffOpen;
     private bool _diffLoading;
     private ConversationDiff? _diff;
@@ -593,7 +594,6 @@
 
         ResetDiff();
         _draft = "";
-        _answer = "";
         await Chat.ResetAsync();
         RefreshRepositories();
 
@@ -862,29 +862,33 @@
     {
         ResetDiff();
         _draft = "";
-        _answer = "";
         await Chat.LoadConversationAsync(conversation);
     }
 
-    private async Task SendAsync()
+    private async Task SubmitAsync()
     {
-        var prompt = _draft;
-        _draft = "";
-        await Chat.SendAsync(prompt);
-    }
+        if (string.IsNullOrWhiteSpace(_draft))
+        {
+            return;
+        }
 
-    private async Task AnswerAsync()
-    {
-        var answer = _answer;
-        _answer = "";
-        await Chat.AnswerAsync(answer, wasFreeform: true);
+        var text = _draft;
+        _draft = "";
+        var pendingQuestion = Chat.PendingQuestion;
+        if (pendingQuestion is not null)
+        {
+            await Chat.AnswerAsync(text, wasFreeform: true);
+        }
+        else
+        {
+            await Chat.SendAsync(text);
+        }
     }
 
     private async Task ResetAsync()
     {
         ResetDiff();
         _draft = "";
-        _answer = "";
         await Chat.ResetAsync();
         RefreshRepositories();
     }
