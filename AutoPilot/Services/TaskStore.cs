@@ -75,7 +75,34 @@ namespace AutoPilot.Services
             }
         }
 
-        public async Task<RepositoryTask> CreateAsync(RepositoryInfo repository, string title, string? description, CancellationToken ct = default)
+        /// <summary>The oldest pending (unsent) task of a repository with the same trimmed title (case-insensitive), or null.</summary>
+        public RepositoryTask? FindPendingByTitle(string repositoryPath, string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return null;
+            }
+
+            var trimmed = title.Trim();
+            return GetForRepository(repositoryPath)
+                .FirstOrDefault(t => !t.IsSent && string.Equals(t.Title.Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public Task<RepositoryTask> CreateAsync(RepositoryInfo repository, string title, string? description, CancellationToken ct = default) =>
+            CreateAsync(repository, title, description, createdBy: null, sourceSessionId: null, ct);
+
+        /// <summary>Creates a task; <paramref name="createdBy"/> and <paramref name="sourceSessionId"/> mark it as agent-created.</summary>
+        public async Task<RepositoryTask> CreateAsync(RepositoryInfo repository, string title, string? description, string? createdBy, string? sourceSessionId, CancellationToken ct = default) =>
+            (await CreateCoreAsync(repository, title, description, createdBy, sourceSessionId, skipDuplicate: false, ct)).Task;
+
+        /// <summary>
+        /// Like <see cref="CreateAsync(RepositoryInfo, string, string?, string?, string?, CancellationToken)"/>, but atomically (under the write gate)
+        /// creates nothing when a pending task with the same title already exists on the repository; that task is returned with Created = false.
+        /// </summary>
+        public Task<(RepositoryTask Task, bool Created)> CreateIfNoPendingDuplicateAsync(RepositoryInfo repository, string title, string? description, string? createdBy, string? sourceSessionId, CancellationToken ct = default) =>
+            CreateCoreAsync(repository, title, description, createdBy, sourceSessionId, skipDuplicate: true, ct);
+
+        private async Task<(RepositoryTask Task, bool Created)> CreateCoreAsync(RepositoryInfo repository, string title, string? description, string? createdBy, string? sourceSessionId, bool skipDuplicate, CancellationToken ct)
         {
             ArgumentNullException.ThrowIfNull(repository);
             ArgumentException.ThrowIfNullOrWhiteSpace(title);
@@ -88,14 +115,32 @@ namespace AutoPilot.Services
                 Title = title.Trim(),
                 Description = NormalizeDescription(description),
                 CreatedAt = DateTimeOffset.UtcNow,
+                CreatedBy = string.IsNullOrWhiteSpace(createdBy) ? null : createdBy.Trim(),
+                SourceSessionId = string.IsNullOrWhiteSpace(sourceSessionId) ? null : sourceSessionId,
             };
 
+            RepositoryTask? duplicate = null;
             await MutateAsync(tasks =>
             {
+                if (skipDuplicate)
+                {
+                    var key = Normalize(repository.Path);
+                    duplicate = tasks.Values
+                        .Where(t => !t.IsSent
+                            && string.Equals(Normalize(t.RepositoryPath), key, StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(t.Title.Trim(), task.Title, StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(t => t.CreatedAt)
+                        .FirstOrDefault()?.Clone();
+                    if (duplicate is not null)
+                    {
+                        return false;
+                    }
+                }
+
                 tasks[task.Id] = task;
                 return true;
             }, ct);
-            return task.Clone();
+            return duplicate is null ? (task.Clone(), true) : (duplicate, false);
         }
 
         /// <summary>Edits a pending task. Returns false when it is missing or already sent.</summary>
@@ -139,7 +184,10 @@ namespace AutoPilot.Services
             }, ct);
         }
 
-        /// <summary>Deletes all tasks linked to a conversation. Returns the number deleted.</summary>
+        /// <summary>
+        /// Deletes all tasks sent to a conversation and clears the source conversation of the tasks it created (those are kept).
+        /// Returns the number deleted.
+        /// </summary>
         public async Task<int> DeleteBySessionAsync(string sessionId, CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(sessionId))
@@ -157,7 +205,14 @@ namespace AutoPilot.Services
                 }
 
                 count = ids.Count;
-                return count > 0;
+                var cleared = false;
+                foreach (var task in tasks.Values.Where(t => string.Equals(t.SourceSessionId, sessionId, StringComparison.Ordinal)))
+                {
+                    task.SourceSessionId = null;
+                    cleared = true;
+                }
+
+                return count > 0 || cleared;
             }, ct);
             return count;
         }

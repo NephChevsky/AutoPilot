@@ -1,4 +1,5 @@
 using GitHub.Copilot;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
 namespace AutoPilot.Services
@@ -401,7 +402,19 @@ namespace AutoPilot.Services
             var workingDirectory = sessionDirectory;
             var tools = new WorkspaceTools(workingDirectory, settings.VerificationCommands, TimeSpan.FromSeconds(settings.VerificationTimeoutSeconds), branch, settings.GitRemote);
             await tools.CaptureBaselineAsync(CancellationToken.None);
-
+            var taskTools = new RepositoryTaskTools(
+                tasks,
+                () => repositories.GetRepositories(),
+                repository,
+                sessionId,
+                settings.OrchestratorAgent,
+                async (question, choices, ct) =>
+                {
+                    var response = await WaitForUserAnswerAsync(new UserInputRequest { Question = question, Choices = [.. choices], AllowFreeform = true });
+                    return (response.Answer, response.WasFreeform);
+                });
+            var allTools = new List<AIFunctionDeclaration>(tools.CreateTools());
+            allTools.AddRange(taskTools.CreateTools());
             var customAgents = agents.Select(a => a.ToCustomAgentConfig()).ToList();
             var hooks = new SessionHooks
             {
@@ -425,7 +438,7 @@ namespace AutoPilot.Services
                     WorkingDirectory = workingDirectory,
                     CustomAgents = customAgents,
                     Agent = orchestrator.Name,
-                    Tools = tools.CreateTools(),
+                    Tools = allTools,
                     Streaming = true,
                     SuppressResumeEvent = true,
                     OnPermissionRequest = PermissionHandler.ApproveAll,
@@ -446,7 +459,7 @@ namespace AutoPilot.Services
                 WorkingDirectory = workingDirectory,
                 CustomAgents = customAgents,
                 Agent = orchestrator.Name,
-                Tools = tools.CreateTools(),
+                Tools = allTools,
                 Streaming = true,
                 OnPermissionRequest = PermissionHandler.ApproveAll,
                 OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
