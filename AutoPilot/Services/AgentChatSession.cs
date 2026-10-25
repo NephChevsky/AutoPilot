@@ -126,6 +126,18 @@ namespace AutoPilot.Services
             await NotifyAsync();
         }
 
+        /// <summary>Diff of the current conversation's branch; null when there is no open conversation or it has no dedicated branch.</summary>
+        public Task<ConversationDiff?> GetCurrentDiffAsync(CancellationToken cancellationToken = default)
+        {
+            var sessionId = CurrentSessionId;
+            if (sessionId is null || CurrentBranch is null)
+            {
+                return Task.FromResult<ConversationDiff?>(null);
+            }
+
+            return worktrees.GetDiffAsync(sessionId, cancellationToken);
+        }
+
         public async ValueTask DisposeAsync()
         {
             Changed = null;
