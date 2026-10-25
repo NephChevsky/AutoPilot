@@ -208,7 +208,7 @@
             @if (_mergeConfirm && Chat.CurrentBranch is { } mergeBranch)
             {
                 <div class="merge-confirm">
-                    <span>Merge <strong>@mergeBranch</strong> of repository <strong>@Chat.CurrentRepository?.Name</strong> into the branch currently checked out in that repository, push that branch to <strong>@Settings.Value.GitRemote</strong>, and delete the conversation's worktree and local branch?</span>
+                    <span>Merge <strong>@mergeBranch</strong> of repository <strong>@Chat.CurrentRepository?.Name</strong> into the branch currently checked out in that repository, push that branch to <strong>@Settings.Value.GitRemote</strong>, and delete the conversation's worktree, local branch and remote branch?</span>
                     <button type="button" class="btn" @onclick="ConfirmMergeAsync" disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">Confirm merge</button>
                     <button type="button" class="btn secondary" @onclick="CancelMerge" disabled="@Chat.IsMerging">Cancel</button>
                 </div>
