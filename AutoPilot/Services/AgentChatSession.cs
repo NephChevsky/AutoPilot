@@ -15,6 +15,7 @@ namespace AutoPilot.Services
         AgentCatalog catalog,
         IOptions<AutoPilotSettings> options,
         UsageLedger ledger,
+        TaskStore tasks,
         RepositoryCatalog repositories,
         ILogger<AgentChatSession> logger) : IAsyncDisposable
     {
@@ -71,17 +72,18 @@ namespace AutoPilot.Services
 
         public IReadOnlyList<ChatEntry> GetEntries() => _transcript.GetEntries();
 
-        public async Task SendAsync(string prompt)
+        /// <summary>Sends a prompt. Returns true only when the prompt was handed to the session successfully.</summary>
+        public async Task<bool> SendAsync(string prompt)
         {
             if (string.IsNullOrWhiteSpace(prompt) || IsBusy || IsLoading || IsMerging)
             {
-                return;
+                return false;
             }
 
             var repository = CurrentRepository ?? SelectedRepository;
             if (_session is null && repository is null)
             {
-                return;
+                return false;
             }
 
             IsBusy = true;
@@ -93,19 +95,22 @@ namespace AutoPilot.Services
             {
                 _session ??= await CreateSessionAsync(resumeSessionId: null, repository!);
                 await _session.SendAsync(new MessageOptions { Prompt = prompt.Trim() });
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to send message to the Copilot session.");
-                if (_session is null)
-                {
-                    CurrentBranch = null;
-                    CurrentRepository = null;
-                }
-                Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = ex.Message });
-                IsBusy = false;
-                await NotifyAsync();
-            }
+                                return true;
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogError(ex, "Failed to send message to the Copilot session.");
+                                if (_session is null)
+                                {
+                                    CurrentSessionId = null;
+                                    CurrentBranch = null;
+                                    CurrentRepository = null;
+                                }
+                                Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = ex.Message });
+                                IsBusy = false;
+                                await NotifyAsync();
+                                return false;
+                            }
         }
 
         public async Task AnswerAsync(string answer, bool wasFreeform)
@@ -214,8 +219,20 @@ namespace AutoPilot.Services
                     result = new ConversationMergeResult(ConversationMergeStatus.Rejected, $"Merge failed: {ex.Message}");
                 }
 
-                await LoadConversationCoreAsync(sessionId, repository);
                 var success = result.Status is ConversationMergeStatus.Merged or ConversationMergeStatus.CleanupFailed;
+                if (success)
+                {
+                    try
+                    {
+                        await tasks.DeleteBySessionAsync(sessionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to delete the tasks linked to merged conversation {SessionId}.", sessionId);
+                    }
+                }
+
+                await LoadConversationCoreAsync(sessionId, repository);
                 Add(new ChatEntry
                 {
                     Kind = success ? ChatEntryKind.Activity : ChatEntryKind.Error,
