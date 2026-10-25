@@ -7,6 +7,8 @@ namespace AutoPilot.Services
     /// Persistent, thread-safe store of repository tasks (a single JSON file). Registered as a singleton so all
     /// Blazor circuits share it. The file is loaded lazily; a corrupt file is backed up and replaced by an empty store,
     /// while an unreadable (e.g. locked) file is never overwritten: reads return empty data and writes throw until it can be read.
+    /// Saves are atomic (temp file, then a replace-move retried briefly for transient locks). Reads open the file without denying
+    /// other handles read, write or delete access; a replace that races an open reader or an external scanner is absorbed by the bounded retry.
     /// </summary>
     public sealed class TaskStore
     {
@@ -16,13 +18,20 @@ namespace AutoPilot.Services
         private readonly ILogger<TaskStore> _logger;
         private readonly Lock _lock = new();
         private readonly SemaphoreSlim _writeGate = new(1, 1);
+        private readonly FileRetryPolicy _retryPolicy;
         private Dictionary<string, RepositoryTask>? _tasks;
 
         public TaskStore(string filePath, ILogger<TaskStore> logger)
+            : this(filePath, logger, FileRetryPolicy.Default)
+        {
+        }
+
+        internal TaskStore(string filePath, ILogger<TaskStore> logger, FileRetryPolicy retryPolicy)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
             _filePath = Path.GetFullPath(filePath);
             _logger = logger;
+            _retryPolicy = retryPolicy;
         }
 
         public TaskStore(IOptions<AutoPilotSettings> options, ILogger<TaskStore> logger)
@@ -297,7 +306,7 @@ namespace AutoPilot.Services
 
             try
             {
-                var json = File.ReadAllText(_filePath);
+                var json = AtomicFile.ReadAllText(_filePath);
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     return tasks;
@@ -366,18 +375,11 @@ namespace AutoPilot.Services
                     await JsonSerializer.SerializeAsync(stream, new TasksFile { Tasks = tasks }, JsonOptions, ct);
                 }
 
-                File.Move(temp, _filePath, overwrite: true);
+                await AtomicFile.MoveWithRetryAsync(temp, _filePath, _retryPolicy, ct);
             }
             catch
             {
-                try
-                {
-                    File.Delete(temp);
-                }
-                catch (IOException)
-                {
-                }
-
+                AtomicFile.TryDelete(temp);
                 throw;
             }
         }
