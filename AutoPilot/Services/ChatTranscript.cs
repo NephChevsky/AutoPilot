@@ -16,6 +16,7 @@ namespace AutoPilot.Services
         private readonly Dictionary<string, string> _subagentByToolCallId = [];
         private readonly Dictionary<string, string> _subagentByAgentId = [];
         private string _orchestratorName = "Orchestrator";
+        private bool _contentFilterPending;
 
         public string OrchestratorName
         {
@@ -46,6 +47,7 @@ namespace AutoPilot.Services
                 _entries.Clear();
                 _subagentByToolCallId.Clear();
                 _subagentByAgentId.Clear();
+                _contentFilterPending = false;
             }
         }
 
@@ -148,8 +150,38 @@ namespace AutoPilot.Services
                         _entries.Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = failedName, Text = $"{failedName} failed: {failed.Data.Error}" });
                         return true;
 
+                    case AssistantUsageEvent usage:
+                        if (usage.Data.ContentFilterTriggered != true && usage.Data.FinishReason != "content_filter")
+                        {
+                            _contentFilterPending = false;
+                            return false;
+                        }
+
+                        _contentFilterPending = true;
+                        var blockedAuthor = ResolveAgentUnlocked(usage.AgentId);
+                        var requestId = string.IsNullOrEmpty(usage.Data.ServiceRequestId) ? "" : $" (request ID: {usage.Data.ServiceRequestId})";
+                        _entries.Add(new ChatEntry
+                        {
+                            Kind = ChatEntryKind.Error,
+                            Author = blockedAuthor,
+                            Text = $"{blockedAuthor}'s response was blocked by the content filter: model {usage.Data.Model} refused to answer{requestId}. Try rephrasing the request.",
+                        });
+                        return true;
+
                     case SessionErrorEvent error:
-                        _entries.Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = error.Data.Message });
+                        var errorText = error.Data.Message;
+                        if (_contentFilterPending)
+                        {
+                            errorText += "\nThis error occurred while retrying after the content filter blocked the previous response; that refusal is the likely root cause.";
+                            _contentFilterPending = false;
+                        }
+
+                        if (!string.IsNullOrEmpty(error.Data.Url))
+                        {
+                            errorText += $"\nMore information: {error.Data.Url}";
+                        }
+
+                        _entries.Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = errorText });
                         return true;
 
                     default:

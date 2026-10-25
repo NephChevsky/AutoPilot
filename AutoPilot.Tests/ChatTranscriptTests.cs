@@ -128,6 +128,38 @@ namespace AutoPilot.Tests
         }
 
         [Fact]
+        public void Content_filter_refusal_becomes_error_entry_and_explains_following_session_error()
+        {
+            var transcript = Create();
+            transcript.Apply(new AssistantUsageEvent { Data = new AssistantUsageData { Model = "m1", FinishReason = "content_filter", ContentFilterTriggered = true, ServiceRequestId = "req-1" } });
+            transcript.Apply(new SessionErrorEvent { Data = new SessionErrorData { Message = "Execution failed: 400 The requested model is not supported.", ErrorType = "query" } });
+
+            var entries = transcript.GetEntries();
+            Assert.Equal(2, entries.Count);
+            Assert.Equal(ChatEntryKind.Error, entries[0].Kind);
+            Assert.Equal("Boss", entries[0].Author);
+            Assert.Contains("blocked by the content filter", entries[0].Text);
+            Assert.Contains("m1", entries[0].Text);
+            Assert.Contains("req-1", entries[0].Text);
+            Assert.StartsWith("Execution failed: 400 The requested model is not supported.", entries[1].Text);
+            Assert.Contains("likely root cause", entries[1].Text);
+        }
+
+        [Fact]
+        public void Normal_usage_creates_no_entry_and_clears_pending_content_filter()
+        {
+            var transcript = Create();
+            transcript.Apply(new AssistantUsageEvent { Data = new AssistantUsageData { Model = "m1", ContentFilterTriggered = true } });
+            var changed = transcript.Apply(new AssistantUsageEvent { Data = new AssistantUsageData { Model = "m1", FinishReason = "stop" } });
+            transcript.Apply(new SessionErrorEvent { Data = new SessionErrorData { Message = "bad", ErrorType = "query", Url = "https://example.test/help" } });
+
+            Assert.False(changed);
+            var entries = transcript.GetEntries();
+            Assert.Equal(2, entries.Count);
+            Assert.Equal("bad\nMore information: https://example.test/help", entries[1].Text);
+        }
+
+        [Fact]
         public void Subagent_completion_prefers_event_data_name_over_started_mapping()
         {
             var transcript = Create();
