@@ -354,10 +354,6 @@
         border-left-width: 4px;
     }
 
-    .entry.assistant.subagent {
-        margin-left: 1.5rem;
-    }
-
     .entry.tool {
         display: flex;
         gap: 0.5rem;
@@ -365,10 +361,6 @@
         font-size: 0.8rem;
         color: #6c757d;
     }
-
-        .entry.tool.subagent {
-            margin-left: 1.5rem;
-        }
 
         .entry.tool .author {
             margin: 0;

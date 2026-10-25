@@ -341,7 +341,7 @@
                         <div class="entry user"><div class="bubble">@entry.Text</div></div>
                         break;
                     case ChatEntryKind.Assistant:
-                        <div class="entry assistant @_colors.CssClassFor(entry.Author) @(entry.IsSubagent ? "subagent" : "")">
+                        <div class="entry assistant @_colors.CssClassFor(entry.Author)">
                             <div class="author">@entry.Author</div>
                             @if (AgentStatus.TryExtract(entry.Text, out var agentStatus, out var statusRemainder))
                             {
@@ -357,7 +357,7 @@
                         </div>
                         break;
                     case ChatEntryKind.Tool:
-                        <div class="entry tool @_colors.CssClassFor(entry.Author) @(entry.IsSubagent ? "subagent" : "")">
+                        <div class="entry tool @_colors.CssClassFor(entry.Author)">
                             <span class="author">@entry.Author</span>
                             <code>@entry.Text</code>
                             <span class="status @StatusClass(entry)">@StatusText(entry)</span>
