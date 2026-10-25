@@ -826,3 +826,42 @@
     color: #6c757d;
     font-style: italic;
 }
+
+/* Syntax colors (GitHub-light palette); spans are created by highlight.js at runtime. */
+.diff-code ::deep .hljs-keyword,
+.diff-code ::deep .hljs-doctag,
+.diff-code ::deep .hljs-template-tag,
+.diff-code ::deep .hljs-selector-tag { color: #cf222e; }
+.diff-code ::deep .hljs-string,
+.diff-code ::deep .hljs-regexp,
+.diff-code ::deep .hljs-meta .hljs-string { color: #0a3069; }
+.diff-code ::deep .hljs-comment,
+.diff-code ::deep .hljs-quote { color: #57606a; font-style: italic; }
+.diff-code ::deep .hljs-number,
+.diff-code ::deep .hljs-literal,
+.diff-code ::deep .hljs-attr,
+.diff-code ::deep .hljs-attribute,
+.diff-code ::deep .hljs-variable.constant_,
+.diff-code ::deep .hljs-selector-attr,
+.diff-code ::deep .hljs-selector-class,
+.diff-code ::deep .hljs-selector-id,
+.diff-code ::deep .hljs-selector-pseudo,
+.diff-code ::deep .hljs-meta { color: #0550ae; }
+.diff-code ::deep .hljs-title,
+.diff-code ::deep .hljs-title.function_,
+.diff-code ::deep .hljs-section { color: #7a45d8; }
+.diff-code ::deep .hljs-title.class_,
+.diff-code ::deep .hljs-title.class_.inherited__,
+.diff-code ::deep .hljs-type,
+.diff-code ::deep .hljs-built_in,
+.diff-code ::deep .hljs-symbol,
+.diff-code ::deep .hljs-bullet { color: #953800; }
+.diff-code ::deep .hljs-name,
+.diff-code ::deep .hljs-tag { color: #116329; }
+.diff-code ::deep .hljs-variable,
+.diff-code ::deep .hljs-template-variable,
+.diff-code ::deep .hljs-params,
+.diff-code ::deep .hljs-property,
+.diff-code ::deep .hljs-subst { color: #24292f; }
+.diff-code ::deep .hljs-emphasis { font-style: italic; }
+.diff-code ::deep .hljs-strong { font-weight: bold; }

@@ -8,6 +8,7 @@
 @inject IOptions<AutoPilotSettings> Settings
 @inject RepositoryCatalog Repositories
 @inject TaskStore Tasks
+@inject IJSRuntime JS
 
 <div class="chat-layout">
 <aside class="conversations">
@@ -289,7 +290,7 @@
                         @for (var i = 0; i < diff.Files.Count; i++)
                         {
                             var file = diff.Files[i];
-                            <details class="diff-file" id="@($"diff-file-{i}")" open>
+                            <details class="diff-file" id="@($"diff-file-{i}")" @key="@((_diffVersion, i))" open>
                                 <summary>
                                     <span class="diff-path">@DisplayPath(file)</span>
                                     <span class="diff-status @file.Status.ToString().ToLowerInvariant()">@file.Status</span>
@@ -305,10 +306,17 @@
                                 }
                                 else
                                 {
-                                    <div class="diff-code">
+                                    <div class="diff-code" data-language="@DiffLanguages.FromPath(file.Path)">
                                         @foreach (var line in file.Lines)
                                         {
-                                            <div class="diff-line @LineClass(line.Kind)"><span class="diff-marker">@LineMarker(line.Kind)</span>@line.Text</div>
+                                            @if (line.Kind is DiffLineKind.Hunk or DiffLineKind.Meta)
+                                            {
+                                                <div class="diff-line @LineClass(line.Kind)"><span class="diff-marker">@LineMarker(line.Kind)</span>@line.Text</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="diff-line @LineClass(line.Kind)"><span class="diff-marker">@LineMarker(line.Kind)</span><span class="diff-text">@line.Text</span></div>
+                                            }
                                         }
                                     </div>
                                 }
@@ -514,6 +522,7 @@
     private string? _diffError;
     private string? _diffSessionId;
     private int _diffVersion;
+    private bool _highlightPending;
     private bool _mergeConfirm;
     private string? _mergeError;
 
@@ -752,6 +761,7 @@
     private void ResetDiff()
     {
         _diffVersion++;
+        _highlightPending = false;
         _mergeConfirm = false;
         _mergeError = null;
         _diffOpen = false;
@@ -775,6 +785,7 @@
     private async Task LoadDiffAsync()
     {
         var version = ++_diffVersion;
+        _highlightPending = false;
         _diffLoading = true;
         _diffError = null;
         _diff = null;
@@ -807,7 +818,26 @@
         _diff = result;
         _diffError = error;
         _diffLoading = false;
+        _highlightPending = result is not null;
         await InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_highlightPending || _isDisposed || _diff is null || _diffLoading)
+        {
+            return;
+        }
+
+        _highlightPending = false;
+        try
+        {
+            await JS.InvokeVoidAsync("autopilotHighlightDiffs");
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or OperationCanceledException or InvalidOperationException)
+        {
+            // Syntax coloring is cosmetic; the plain diff stays visible.
+        }
     }
 
     private static string ShortSha(string sha) => sha.Length > 8 ? sha[..8] : sha;
