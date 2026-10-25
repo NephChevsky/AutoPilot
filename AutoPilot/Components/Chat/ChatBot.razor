@@ -61,6 +61,7 @@
             @if (Chat.CurrentBranch is { } branch)
             {
                 <div class="branch-name" title="Conversation branch">Branch: @branch</div>
+                <button type="button" class="btn secondary review-btn" @onclick="OpenDiffAsync" disabled="@(Chat.IsBusy || Chat.IsLoading)">Review changes</button>
             }
             <div>
                 This session:
@@ -78,6 +79,103 @@
         </div>
     </header>
 
+    @if (_diffOpen)
+    {
+        <section class="diff-panel">
+            <div class="diff-header">
+                <div>
+                    <strong>Changes on @(Chat.CurrentBranch ?? _diff?.Branch)</strong>
+                    @if (_diff is { } header)
+                    {
+                        <small class="diff-base">base @ShortSha(header.BaseCommit)</small>
+                        <span class="diff-totals">
+                            <span class="diff-add">+@header.TotalAdditions</span>
+                            <span class="diff-del">−@header.TotalDeletions</span>
+                            · @header.Files.Count @(header.Files.Count == 1 ? "file" : "files")
+                        </span>
+                    }
+                </div>
+                <div class="diff-actions">
+                    <button type="button" class="btn secondary" @onclick="RefreshDiffAsync" disabled="@(_diffLoading || Chat.IsBusy || Chat.IsLoading)">Refresh</button>
+                    <button type="button" class="btn secondary" @onclick="CloseDiff">Close</button>
+                </div>
+            </div>
+            <div class="diff-body">
+                @if (_diffLoading)
+                {
+                    <div class="entry activity working">Loading diff...</div>
+                }
+                else if (_diffError is not null)
+                {
+                    <div class="entry error">@_diffError</div>
+                }
+                else if (_diff is { } diff)
+                {
+                    @if (diff.Files.Count == 0)
+                    {
+                        <div class="entry activity">No changes</div>
+                    }
+                    else
+                    {
+                        <ul class="diff-files">
+                            @for (var i = 0; i < diff.Files.Count; i++)
+                            {
+                                var file = diff.Files[i];
+                                <li>
+                                    <a href="@($"#diff-file-{i}")">@DisplayPath(file)</a>
+                                    <span class="diff-status @file.Status.ToString().ToLowerInvariant()">@file.Status</span>
+                                    @if (file.IsBinary)
+                                    {
+                                        <small>binary</small>
+                                    }
+                                    else
+                                    {
+                                        <span class="diff-add">+@file.Additions</span>
+                                        <span class="diff-del">−@file.Deletions</span>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                        @for (var i = 0; i < diff.Files.Count; i++)
+                        {
+                            var file = diff.Files[i];
+                            <details class="diff-file" id="@($"diff-file-{i}")" open>
+                                <summary>
+                                    <span class="diff-path">@DisplayPath(file)</span>
+                                    <span class="diff-status @file.Status.ToString().ToLowerInvariant()">@file.Status</span>
+                                    @if (!file.IsBinary)
+                                    {
+                                        <span class="diff-add">+@file.Additions</span>
+                                        <span class="diff-del">−@file.Deletions</span>
+                                    }
+                                </summary>
+                                @if (file.IsBinary)
+                                {
+                                    <div class="diff-binary">Binary file changed</div>
+                                }
+                                else
+                                {
+                                    <div class="diff-code">
+                                        @foreach (var line in file.Lines)
+                                        {
+                                            <div class="diff-line @LineClass(line.Kind)"><span class="diff-marker">@LineMarker(line.Kind)</span>@line.Text</div>
+                                        }
+                                    </div>
+                                }
+                            </details>
+                        }
+                    }
+
+                    @if (diff.Truncated)
+                    {
+                        <div class="entry error">The diff is very large and was truncated; later changes are not shown.</div>
+                    }
+                }
+            </div>
+        </section>
+    }
+    else
+    {
     <div class="messages">
         <div class="messages-inner">
             @if (_loadError is not null)
@@ -125,6 +223,7 @@
             }
         </div>
     </div>
+    }
 
     @if (Chat.PendingQuestion is { } question)
     {
@@ -175,6 +274,92 @@
     private CancellationTokenSource _disposed = new();
     private string _draft = "";
     private string _answer = "";
+    private bool _diffOpen;
+    private bool _diffLoading;
+    private ConversationDiff? _diff;
+    private string? _diffError;
+    private string? _diffSessionId;
+    private int _diffVersion;
+
+    private void ResetDiff()
+    {
+        _diffVersion++;
+        _diffOpen = false;
+        _diffLoading = false;
+        _diff = null;
+        _diffError = null;
+        _diffSessionId = null;
+    }
+
+    private void CloseDiff() => ResetDiff();
+
+    private async Task OpenDiffAsync()
+    {
+        _diffOpen = true;
+        _diffSessionId = Chat.CurrentSessionId;
+        await LoadDiffAsync();
+    }
+
+    private Task RefreshDiffAsync() => LoadDiffAsync();
+
+    private async Task LoadDiffAsync()
+    {
+        var version = ++_diffVersion;
+        _diffLoading = true;
+        _diffError = null;
+        _diff = null;
+        StateHasChanged();
+
+        ConversationDiff? result = null;
+        string? error = null;
+        try
+        {
+            result = await Chat.GetCurrentDiffAsync(_disposed.Token);
+            if (result is null)
+            {
+                error = "No branch was found for this conversation.";
+            }
+        }
+        catch (OperationCanceledException) when (_isDisposed)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            error = $"Failed to load the diff: {ex.Message}";
+        }
+
+        if (_isDisposed || version != _diffVersion)
+        {
+            return;
+        }
+
+        _diff = result;
+        _diffError = error;
+        _diffLoading = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string ShortSha(string sha) => sha.Length > 8 ? sha[..8] : sha;
+
+    private static string DisplayPath(DiffFile file) => file.OldPath is null ? file.Path : $"{file.OldPath} → {file.Path}";
+
+    private static string LineClass(DiffLineKind kind) => kind switch
+    {
+        DiffLineKind.Hunk => "hunk",
+        DiffLineKind.Added => "added",
+        DiffLineKind.Removed => "removed",
+        DiffLineKind.Meta => "meta",
+        _ => "context",
+    };
+
+    private static string LineMarker(DiffLineKind kind) => kind switch
+    {
+        DiffLineKind.Added => "+",
+        DiffLineKind.Removed => "-",
+        DiffLineKind.Context => " ",
+        _ => "",
+    };
 
     protected override void OnInitialized()
     {
@@ -232,6 +417,7 @@
 
     private async Task OpenAsync(string sessionId)
     {
+        ResetDiff();
         _draft = "";
         _answer = "";
         await Chat.LoadConversationAsync(sessionId);
@@ -253,6 +439,7 @@
 
     private async Task ResetAsync()
     {
+        ResetDiff();
         _draft = "";
         _answer = "";
         await Chat.ResetAsync();
@@ -283,6 +470,15 @@
         }
 
         // Re-list when a conversation was created/opened or a run finished.
+        if (_diffOpen && Chat.CurrentSessionId != _diffSessionId)
+        {
+            ResetDiff();
+        }
+        if (_diffOpen && !_wasBusy && Chat.IsBusy)
+        {
+            // A run started: the diff would be stale and hides the progress.
+            ResetDiff();
+        }
         var refresh = Chat.CurrentSessionId != _listedSessionId || (_wasBusy && !Chat.IsBusy);
         _listedSessionId = Chat.CurrentSessionId;
         _wasBusy = Chat.IsBusy;
