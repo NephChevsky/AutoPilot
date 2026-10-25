@@ -75,6 +75,55 @@ namespace AutoPilot.Services
             return new CostTotals(count, premium, nano, input, output, cacheRead, cacheWrite, reasoning);
         }
 
+        /// <summary>
+        /// Sums per-agent figures across all sessions, keyed by agent name (ordinal). DisplayName comes from the most recently
+        /// updated session that has one. Inputs are not modified.
+        /// </summary>
+        public static IReadOnlyDictionary<string, AgentCost> TotalByAgent(IEnumerable<SessionCost> costs)
+        {
+            var result = new Dictionary<string, AgentCost>(StringComparer.Ordinal);
+            var nameDates = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+            foreach (var cost in costs)
+            {
+                if (cost?.Agents is null)
+                {
+                    continue;
+                }
+
+                foreach (var (name, agent) in cost.Agents)
+                {
+                    if (agent is null)
+                    {
+                        continue;
+                    }
+
+                    if (!result.TryGetValue(name, out var total))
+                    {
+                        total = new AgentCost();
+                        result[name] = total;
+                    }
+
+                    total.Requests += agent.Requests;
+                    total.PremiumCost += agent.PremiumCost;
+                    total.NanoAiu += agent.NanoAiu;
+                    total.InputTokens += agent.InputTokens;
+                    total.OutputTokens += agent.OutputTokens;
+                    total.CacheReadTokens += agent.CacheReadTokens;
+                    total.CacheWriteTokens += agent.CacheWriteTokens;
+                    total.ReasoningTokens += agent.ReasoningTokens;
+
+                    if (!string.IsNullOrWhiteSpace(agent.DisplayName)
+                        && (!nameDates.TryGetValue(name, out var seen) || cost.LastUpdated > seen))
+                    {
+                        total.DisplayName = agent.DisplayName;
+                        nameDates[name] = cost.LastUpdated;
+                    }
+                }
+            }
+
+            return result;
+        }
+
         /// <summary>Maps SDK metrics to a snapshot. "main" is named <paramref name="orchestratorName"/>; agents are aggregated by name.</summary>
         public static UsageSnapshot ToSnapshot(UsageGetMetricsResult metrics, string orchestratorName)
         {

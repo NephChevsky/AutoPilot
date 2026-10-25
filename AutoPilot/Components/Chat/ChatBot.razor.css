@@ -212,6 +212,22 @@
     color: #6c757d;
 }
 
+.agent-costs summary {
+    cursor: pointer;
+}
+
+.agent-costs table {
+    margin-left: auto;
+    border-collapse: collapse;
+}
+
+.agent-costs th,
+.agent-costs td {
+    padding: 0.1rem 0.5rem;
+    text-align: left;
+    white-space: nowrap;
+}
+
 .agents {
     display: flex;
     flex-wrap: wrap;
