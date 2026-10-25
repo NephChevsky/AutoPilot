@@ -25,6 +25,9 @@ namespace AutoPilot.Services
         // Serializes snapshot-and-record so an older snapshot can never overwrite a newer one.
         private readonly SemaphoreSlim _usageGate = new(1, 1);
         // Resume-safe accounting: ledger record and SDK metrics as they were when this session was created/resumed.
+        private CostRefreshCoalescer? _costRefreshInstance;
+        private CostRefreshCoalescer _costRefresh =>
+            LazyInitializer.EnsureInitialized(ref _costRefreshInstance, () => new CostRefreshCoalescer(SnapshotAndRecordAsync))!;
         private UsageSnapshot? _usageBaseline;
         private SessionCost? _storedAtBaseline;
         private string? _title;
@@ -253,6 +256,7 @@ namespace AutoPilot.Services
         public async ValueTask DisposeAsync()
         {
             Changed = null;
+            _costRefresh.Dispose();
             await CloseSessionAsync();
         }
 
@@ -571,6 +575,12 @@ namespace AutoPilot.Services
 
         private void OnSessionEvent(SessionEvent sessionEvent)
         {
+            // Live cost: refresh after each model call / turn / sub-agent, before the transcript may early-return.
+            if (sessionEvent is AssistantUsageEvent or AssistantTurnEndEvent or SubagentCompletedEvent or SubagentFailedEvent)
+            {
+                _costRefresh.Request();
+            }
+
             if (sessionEvent is SessionIdleEvent)
             {
                 IsBusy = false;
