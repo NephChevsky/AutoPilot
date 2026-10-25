@@ -100,6 +100,9 @@ namespace AutoPilot.Services
                             Author = ResolveAgentUnlocked(toolStart.AgentId),
                             IsSubagent = toolStart.AgentId is not null,
                             Text = toolStart.Data.ToolName,
+                            ToolSummary = ToolCallFormatter.Summarize(toolStart.Data.Arguments),
+                            ToolArguments = ToolCallFormatter.FormatArguments(toolStart.Data.Arguments, out var argsTruncated),
+                            ToolArgumentsTruncated = argsTruncated,
                         });
                         return true;
 
@@ -111,6 +114,18 @@ namespace AutoPilot.Services
                         }
 
                         tool.Succeeded = toolComplete.Data.Success;
+                        if (toolComplete.Data.Success)
+                        {
+                            var result = toolComplete.Data.Result;
+                            var text = !string.IsNullOrEmpty(result?.DetailedContent) ? result.DetailedContent : result?.Content;
+                            tool.ToolResult = ToolCallFormatter.CapResult(text, out var truncated);
+                            tool.ToolResultTruncated = truncated;
+                        }
+                        else
+                        {
+                            tool.ToolError = ToolCallFormatter.CapError(toolComplete.Data.Error?.Message);
+                        }
+
                         return true;
 
                     case SubagentStartedEvent started:

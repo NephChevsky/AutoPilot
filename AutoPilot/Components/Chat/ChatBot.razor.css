@@ -366,6 +366,58 @@
             margin: 0;
         }
 
+        .entry.tool details {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .entry.tool summary {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .entry.tool .tool-summary {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .entry.tool .tool-details {
+            margin-top: 0.3rem;
+        }
+
+        .entry.tool .tool-section-title {
+            font-weight: 600;
+            margin-top: 0.3rem;
+        }
+
+        .entry.tool pre {
+            margin: 0.15rem 0 0;
+            padding: 0.4rem 0.5rem;
+            max-height: 16rem;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            color: #212529;
+            font-size: 0.75rem;
+        }
+
+        .entry.tool pre.tool-error {
+            color: #842029;
+            background: #f8d7da;
+            border-color: #f1aeb5;
+        }
+
+        .entry.tool .tool-truncated {
+            font-style: italic;
+        }
+
     .entry.activity {
         align-self: center;
         font-size: 0.8rem;
