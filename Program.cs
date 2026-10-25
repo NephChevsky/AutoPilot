@@ -29,6 +29,9 @@ builder.Services.AddSingleton(sp =>
         Logger = sp.GetRequiredService<ILogger<CopilotClient>>(),
     });
 });
+builder.Services.AddSingleton(sp => new UsageLedger(
+    sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveUsageFile(),
+    sp.GetRequiredService<ILogger<UsageLedger>>()));
 builder.Services.AddScoped<AgentChatSession>();
 
 var app = builder.Build();

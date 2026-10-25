@@ -26,6 +26,24 @@ namespace AutoPilot.Services
                 ? Directory.GetCurrentDirectory()
                 : Path.GetFullPath(WorkingDirectory);
 
+        /// <summary>
+        /// Path of the usage ledger JSON file. Empty uses <c>&lt;CopilotDirectory&gt;\usage\session-costs.json</c>, or
+        /// <c>&lt;current directory&gt;\Copilot\usage\session-costs.json</c> when no CopilotDirectory is set.
+        /// </summary>
+        public string UsageFile { get; set; } = "";
+
+        /// <summary>Resolves the usage ledger file path (see <see cref="UsageFile"/>).</summary>
+        public string ResolveUsageFile()
+        {
+            if (!string.IsNullOrWhiteSpace(UsageFile))
+            {
+                return Path.GetFullPath(UsageFile);
+            }
+
+            var baseDirectory = ResolveCopilotDirectory() ?? Path.Combine(Directory.GetCurrentDirectory(), "Copilot");
+            return Path.Combine(baseDirectory, "usage", "session-costs.json");
+        }
+
         public string? ResolveCopilotDirectory() =>
             string.IsNullOrWhiteSpace(CopilotDirectory)
                 ? null

@@ -3,6 +3,7 @@
 @using Microsoft.Extensions.Options
 @implements IDisposable
 @inject AgentChatSession Chat
+@inject UsageLedger Ledger
 @inject AgentCatalog Catalog
 @inject IOptions<AutoPilotSettings> Settings
 
@@ -24,6 +25,14 @@
                         disabled="@(Chat.IsBusy || Chat.IsLoading)" @onclick="() => OpenAsync(conversation.SessionId)">
                     <span class="conversation-title">@(string.IsNullOrWhiteSpace(conversation.Summary) ? "Untitled conversation" : conversation.Summary)</span>
                     <small>@conversation.ModifiedTime.ToLocalTime().ToString("g")</small>
+                    @if (Ledger.Get(conversation.SessionId) is { } saved)
+                    {
+                        <small class="conversation-cost">@FormatPremium(saved.PremiumRequests) premium requests · @FormatCredits(saved.AiCredits) AI credits</small>
+                    }
+                    else
+                    {
+                        <small class="conversation-cost">—</small>
+                    }
                 </button>
             </li>
         }
@@ -47,6 +56,21 @@
                     }
                 </span>
             }
+        </div>
+        <div class="cost-summary">
+            <div>
+                This session:
+                @if (Chat.CurrentCost is { } sessionCost)
+                {
+                    @($"{FormatPremium(sessionCost.PremiumRequests)} premium requests · {FormatCredits(sessionCost.AiCredits)} AI credits")
+                }
+                else
+                {
+                    @("—")
+                }
+            </div>
+            @{ var totals = Ledger.GetTotals(); }
+            <div>All sessions: @FormatPremium(totals.PremiumRequests) premium requests · @FormatCredits(totals.AiCredits) AI credits (@totals.SessionCount sessions)</div>
         </div>
     </header>
 
@@ -160,6 +184,7 @@
         }
 
         Chat.Changed += OnChatChanged;
+        Ledger.Changed += OnLedgerChanged;
         _listedSessionId = Chat.CurrentSessionId;
         _wasBusy = Chat.IsBusy;
         _ = RefreshConversationsAsync();
@@ -265,10 +290,31 @@
         return InvokeAsync(StateHasChanged);
     }
 
+    private static string FormatPremium(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string FormatCredits(double value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
+    private void OnLedgerChanged()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     public void Dispose()
     {
         _isDisposed = true;
         Chat.Changed -= OnChatChanged;
+        Ledger.Changed -= OnLedgerChanged;
         _disposed.Cancel();
         _disposed.Dispose();
     }

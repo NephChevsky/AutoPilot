@@ -11,9 +11,17 @@ namespace AutoPilot.Services
         CopilotClient client,
         AgentCatalog catalog,
         IOptions<AutoPilotSettings> options,
+        UsageLedger ledger,
         ILogger<AgentChatSession> logger) : IAsyncDisposable
     {
         private readonly Lock _gate = new();
+        private static readonly TimeSpan MetricsTimeout = TimeSpan.FromSeconds(5);
+        // Serializes snapshot-and-record so an older snapshot can never overwrite a newer one.
+        private readonly SemaphoreSlim _usageGate = new(1, 1);
+        // Resume-safe accounting: ledger record and SDK metrics as they were when this session was created/resumed.
+        private UsageSnapshot? _usageBaseline;
+        private SessionCost? _storedAtBaseline;
+        private string? _title;
         private readonly ChatTranscript _transcript = new();
         private CopilotSession? _session;
         private IDisposable? _subscription;
@@ -31,6 +39,9 @@ namespace AutoPilot.Services
         /// <summary>Id of the open conversation; null until the first message of a new conversation is sent.</summary>
         public string? CurrentSessionId { get; private set; }
 
+        /// <summary>Saved cost of the open conversation (null until it has been recorded).</summary>
+        public SessionCost? CurrentCost { get; private set; }
+
         public IReadOnlyList<ChatEntry> GetEntries() => _transcript.GetEntries();
 
         public async Task SendAsync(string prompt)
@@ -41,6 +52,7 @@ namespace AutoPilot.Services
             }
 
             IsBusy = true;
+            _title ??= UsageAccumulator.Truncate(prompt);
             Add(new ChatEntry { Kind = ChatEntryKind.User, Author = "You", Text = prompt.Trim() });
             await NotifyAsync();
 
@@ -205,7 +217,7 @@ namespace AutoPilot.Services
 
             if (resumeSessionId is not null)
             {
-                return await client.ResumeSessionAsync(resumeSessionId, new ResumeSessionConfig
+                var resumed = await client.ResumeSessionAsync(resumeSessionId, new ResumeSessionConfig
                 {
                     Model = orchestrator.Model,
                     ReasoningEffort = orchestrator.ReasoningEffort,
@@ -219,6 +231,8 @@ namespace AutoPilot.Services
                     OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
                     Hooks = hooks,
                 });
+                await TakeBaselineAsync(resumed, resumed: true);
+                return resumed;
             }
 
             var session = await client.CreateSessionAsync(new SessionConfig
@@ -237,7 +251,88 @@ namespace AutoPilot.Services
 
             _subscription = session.On<SessionEvent>(OnSessionEvent);
             CurrentSessionId = session.SessionId;
+            await TakeBaselineAsync(session, resumed: false);
             return session;
+        }
+
+        /// <summary>
+        /// Remembers the SDK metrics and ledger record at session start. A new session starts from zero; for a resumed one a
+        /// failed baseline disables recording (null baseline) rather than risking double-counting.
+        /// </summary>
+        private async Task TakeBaselineAsync(CopilotSession session, bool resumed)
+        {
+            _storedAtBaseline = ledger.Get(session.SessionId);
+            CurrentCost = _storedAtBaseline;
+            _usageBaseline = resumed ? null : UsageSnapshot.Zero;
+            if (!resumed)
+            {
+                return;
+            }
+
+            try
+            {
+                using var timeout = new CancellationTokenSource(MetricsTimeout);
+                var metrics = await session.Rpc.Usage.GetMetricsAsync(timeout.Token);
+                _usageBaseline = UsageAccumulator.ToSnapshot(metrics, _transcript.OrchestratorName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to read the usage baseline of session {SessionId}; its cost will not be recorded.", session.SessionId);
+            }
+        }
+
+        /// <summary>
+        /// Reads the current metrics and saves stored-at-baseline + (current - baseline) to the ledger. Never throws:
+        /// failures are logged only and never reach the transcript.
+        /// </summary>
+        private Task SnapshotAndRecordAsync() =>
+            SnapshotAndRecordAsync(_session, _usageBaseline, _storedAtBaseline, _title, closing: false);
+
+        private async Task SnapshotAndRecordAsync(CopilotSession? session, UsageSnapshot? baseline, SessionCost? stored, string? title, bool closing)
+        {
+            var orchestratorName = _transcript.OrchestratorName;
+            if (session is null || baseline is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _usageGate.WaitAsync();
+                try
+                {
+                    // An idle snapshot that waited on the gate must not touch a session that was closed or replaced meanwhile.
+                    if (!closing && !ReferenceEquals(_session, session))
+                    {
+                        return;
+                    }
+
+                    using var timeout = new CancellationTokenSource(MetricsTimeout);
+                    var metrics = await session.Rpc.Usage.GetMetricsAsync(timeout.Token);
+                    var current = UsageAccumulator.ToSnapshot(metrics, orchestratorName);
+                    var cost = UsageAccumulator.Apply(session.SessionId, stored, baseline, current, title);
+                    if (stored is null && !UsageAccumulator.HasUsage(cost))
+                    {
+                        return;
+                    }
+
+                    await ledger.RecordAsync(cost);
+                    if (!closing && ReferenceEquals(_session, session))
+                    {
+                        CurrentCost = cost;
+                    }
+                }
+                finally
+                {
+                    _usageGate.Release();
+                }
+
+                await NotifyAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to record usage of session {SessionId}.", session.SessionId);
+            }
         }
 
         private async Task<UserInputResponse> WaitForUserAnswerAsync(UserInputRequest request)
@@ -260,6 +355,7 @@ namespace AutoPilot.Services
             if (sessionEvent is SessionIdleEvent)
             {
                 IsBusy = false;
+                _ = SnapshotAndRecordAsync();
             }
             else if (!_transcript.Apply(sessionEvent))
             {
@@ -286,18 +382,30 @@ namespace AutoPilot.Services
             CancelPendingQuestion();
             _subscription?.Dispose();
             _subscription = null;
-            if (_session is not null)
+
+            // Capture and clear all state synchronously so a session created while we await is not affected.
+            var session = _session;
+            var baseline = _usageBaseline;
+            var stored = _storedAtBaseline;
+            var title = _title;
+            _session = null;
+            _usageBaseline = null;
+            _storedAtBaseline = null;
+            _title = null;
+            CurrentCost = null;
+            if (session is null)
             {
-                var session = _session;
-                _session = null;
-                try
-                {
-                    await session.DisposeAsync();
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to dispose the Copilot session.");
-                }
+                return;
+            }
+
+            await SnapshotAndRecordAsync(session, baseline, stored, title, closing: true);
+            try
+            {
+                await session.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to dispose the Copilot session.");
             }
         }
 
