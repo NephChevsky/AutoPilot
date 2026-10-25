@@ -15,7 +15,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Agents\**\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="AutoPilot.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None  Update="Agents\**\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
