@@ -60,6 +60,10 @@
                                 {
                                     <span class="task-badge">Sent</span>
                                 }
+                                @if (current.IsAgentCreated)
+                                {
+                                    <span class="task-badge agent" title="@("Created by " + current.CreatedBy)">By agent</span>
+                                }
                                 @current.Title
                             </div>
                             @if (!string.IsNullOrWhiteSpace(current.Description))
@@ -85,6 +89,10 @@
                                     <button type="button" class="btn secondary" @onclick="() => StartEditTask(current)">Edit</button>
                                 }
                                 <button type="button" class="btn danger" @onclick="() => DeleteTaskAsync(current)">Delete</button>
+                                @if (!string.IsNullOrEmpty(current.SourceSessionId))
+                                {
+                                    <button type="button" class="btn secondary" @onclick="() => OpenSourceConversationAsync(current)" disabled="@chatBlocked">Open requesting conversation</button>
+                                }
                             </div>
                         }
                     </li>
@@ -565,10 +573,16 @@
         }
     }
 
-    private async Task OpenTaskConversationAsync(RepositoryTask task)
+    private Task OpenTaskConversationAsync(RepositoryTask task) =>
+        OpenConversationByIdAsync(task.SessionId, "The conversation of this task was not found.");
+
+    private Task OpenSourceConversationAsync(RepositoryTask task) =>
+        OpenConversationByIdAsync(task.SourceSessionId, "The conversation that requested this task no longer exists.");
+
+    private async Task OpenConversationByIdAsync(string? sessionId, string notFoundMessage)
     {
         _taskError = null;
-        var summary = _conversations.FirstOrDefault(c => c.Session.SessionId == task.SessionId);
+        var summary = _conversations.FirstOrDefault(c => c.Session.SessionId == sessionId);
         if (summary is null)
         {
             try
@@ -581,12 +595,12 @@
                 return;
             }
 
-            summary = _conversations.FirstOrDefault(c => c.Session.SessionId == task.SessionId);
+            summary = _conversations.FirstOrDefault(c => c.Session.SessionId == sessionId);
         }
 
         if (summary is null)
         {
-            _taskError = "The conversation of this task was not found.";
+            _taskError = notFoundMessage;
             return;
         }
 

@@ -31,6 +31,15 @@ namespace AutoPilot.Services
 
         public string? SessionId { get; set; }
 
+        /// <summary>Name of the agent that created the task; null for tasks created by the user.</summary>
+        public string? CreatedBy { get; set; }
+
+        /// <summary>Id of the conversation in which an agent created the task; null for user-created tasks.</summary>
+        public string? SourceSessionId { get; set; }
+
+        [JsonIgnore]
+        public bool IsAgentCreated => !string.IsNullOrWhiteSpace(CreatedBy);
+
         [JsonIgnore]
         public bool IsSent => SentAt is not null;
 
