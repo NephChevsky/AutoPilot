@@ -20,6 +20,33 @@ if (!window.__autopilotComposerKeys) {
         }
     });
 
+    // Pasted images are handed to the hidden Blazor InputFile of the main composer (absent while a
+    // question is pending). Plain-text pastes are left alone.
+    document.addEventListener('paste', (e) => {
+        const target = e.target;
+        if (!(target instanceof HTMLTextAreaElement) || !target.matches('.composer textarea') || target.disabled) {
+            return;
+        }
+        const input = target.form && target.form.querySelector('input.paste-input');
+        const items = e.clipboardData ? Array.from(e.clipboardData.items) : [];
+        // Mixed clipboards (Excel, Word, web copies) carry text plus a rendered image: let the text paste.
+        if (e.clipboardData && Array.from(e.clipboardData.types || []).includes('text/plain')) {
+            return;
+        }
+        const files = items
+            .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+            .map((item) => item.getAsFile())
+            .filter((file) => file);
+        if (!input || files.length === 0) {
+            return;
+        }
+        e.preventDefault();
+        const transfer = new DataTransfer();
+        files.forEach((file) => transfer.items.add(file));
+        input.files = transfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
     // Fallback auto-grow for browsers without `field-sizing: content` (e.g. Firefox).
     if (!CSS.supports('field-sizing', 'content')) {
         document.addEventListener('input', (e) => {

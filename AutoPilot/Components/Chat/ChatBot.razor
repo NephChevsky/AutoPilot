@@ -346,7 +346,27 @@
                 switch (entry.Kind)
                 {
                     case ChatEntryKind.User:
-                        <div class="entry user"><div class="bubble">@entry.Text</div></div>
+                        <div class="entry user">
+                            <div class="bubble">
+                                @entry.Text
+                                @if (entry.Images.Count > 0)
+                                {
+                                    <div class="entry-images">
+                                        @foreach (var image in entry.Images)
+                                        {
+                                            @if (image.IsPlaceholder)
+                                            {
+                                                <span class="image-placeholder">🖼 @image.DisplayName</span>
+                                            }
+                                            else
+                                            {
+                                                <img class="image-thumb" src="@image.ToDataUrl()" alt="@image.DisplayName" title="@image.DisplayName" />
+                                            }
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
                         break;
                     case ChatEntryKind.Assistant:
                         <div class="entry assistant @_colors.CssClassFor(entry.Author)">
@@ -474,6 +494,20 @@
                 </select>
             }
         }
+        @if (_pendingImages.Count > 0)
+        {
+            <div class="pending-images">
+                @for (var i = 0; i < _pendingImages.Count; i++)
+                {
+                    var index = i;
+                    var image = _pendingImages[index];
+                    <div class="pending-image">
+                        <img class="image-thumb" src="@image.ToDataUrl()" alt="@image.DisplayName" title="@image.DisplayName" />
+                        <button type="button" class="remove-image" aria-label="Remove image" title="Remove image" @onclick="() => RemovePendingImage(index)">×</button>
+                    </div>
+                }
+            </div>
+        }
         @if (Chat.PendingQuestion is { } pending)
         {
             <textarea rows="1" @bind="_draft" @bind:event="oninput" placeholder="Your answer..." disabled="@(pending.AllowFreeform == false || Chat.IsLoading || Chat.IsMerging)"></textarea>
@@ -482,6 +516,11 @@
         }
         else
         {
+            @if (_imageError is not null)
+            {
+                <div class="image-error" role="alert">@_imageError</div>
+            }
+            <InputFile class="paste-input" OnChange="OnImagesPastedAsync" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden tabindex="-1" aria-hidden="true" />
             <textarea rows="1" @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)"></textarea>
             @if (Chat.IsBusy)
             {
@@ -516,6 +555,101 @@
     private int _refreshVersion;
     private CancellationTokenSource _disposed = new();
     private string _draft = "";
+    private readonly List<PromptImage> _pendingImages = [];
+    private string? _imageError;
+    private int _pastedImageCounter;
+    // Incremented whenever pending images are cleared, so in-flight paste reads can detect they are stale.
+    private int _imageGeneration;
+
+    private void ClearPendingImages()
+    {
+        _imageGeneration++;
+        _pendingImages.Clear();
+        _imageError = null;
+    }
+
+    private void RemovePendingImage(int index)
+    {
+        if (index >= 0 && index < _pendingImages.Count)
+        {
+            _pendingImages.RemoveAt(index);
+        }
+
+        _imageError = null;
+    }
+
+    private bool CanAcceptImages => Chat.PendingQuestion is null && !Chat.IsBusy && !Chat.IsLoading && !Chat.IsMerging;
+
+    private async Task OnImagesPastedAsync(InputFileChangeEventArgs args)
+    {
+        if (!CanAcceptImages)
+        {
+            return;
+        }
+
+        var generation = _imageGeneration;
+        var errors = new List<string>();
+        foreach (var file in args.GetMultipleFiles(int.MaxValue))
+        {
+            var error = PromptImage.Validate(file.ContentType, file.Size, _pendingImages.Count);
+            if (error is not null)
+            {
+                if (!errors.Contains(error))
+                {
+                    errors.Add(error);
+                }
+
+                continue;
+            }
+
+            try
+            {
+                await using var stream = file.OpenReadStream(PromptImage.MaxBytes);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+
+                // State may have changed while reading: drop the result if pending images were cleared
+                // or the composer no longer accepts images, and re-check the limit before adding.
+                if (generation != _imageGeneration || !CanAcceptImages)
+                {
+                    return;
+                }
+
+                if (_pendingImages.Count >= PromptImage.MaxCount)
+                {
+                    var countError = PromptImage.Validate(file.ContentType, file.Size, _pendingImages.Count);
+                    if (countError is not null && !errors.Contains(countError))
+                    {
+                        errors.Add(countError);
+                    }
+
+                    continue;
+                }
+
+                var name = string.IsNullOrWhiteSpace(file.Name) || file.Name == "image.png"
+                    ? $"pasted-image-{++_pastedImageCounter}{ExtensionFor(file.ContentType)}"
+                    : file.Name;
+                _pendingImages.Add(new PromptImage(file.ContentType.Trim().ToLowerInvariant(), buffer.ToArray(), name));
+            }
+            catch (IOException ex)
+            {
+                errors.Add($"Could not read the pasted image: {ex.Message}");
+            }
+        }
+
+        if (generation == _imageGeneration)
+        {
+            _imageError = errors.Count == 0 ? null : string.Join(" ", errors);
+        }
+    }
+
+    private static string ExtensionFor(string contentType) => contentType.Trim().ToLowerInvariant() switch
+    {
+        "image/jpeg" => ".jpg",
+        "image/gif" => ".gif",
+        "image/webp" => ".webp",
+        _ => ".png",
+    };
     private bool _diffOpen;
     private bool _diffLoading;
     private ConversationDiff? _diff;
@@ -950,6 +1084,7 @@
     {
         ResetDiff();
         _draft = "";
+        ClearPendingImages();
         await Chat.LoadConversationAsync(conversation);
     }
 
@@ -969,7 +1104,14 @@
         }
         else
         {
-            await Chat.SendAsync(text);
+            var images = _pendingImages.ToList();
+            var entriesBefore = Chat.GetEntries().Count;
+            ClearPendingImages();
+            if (!await Chat.SendAsync(text, images) && Chat.GetEntries().Count == entriesBefore)
+            {
+                // Rejected before the user entry (with its images) was added: keep the images for another attempt.
+                _pendingImages.AddRange(images);
+            }
         }
     }
 
@@ -977,6 +1119,7 @@
     {
         ResetDiff();
         _draft = "";
+        ClearPendingImages();
         await Chat.ResetAsync();
         RefreshRepositories();
     }
