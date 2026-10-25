@@ -26,14 +26,14 @@ public class SessionCostAcceptanceTests : IDisposable
 
     private string NewPath(string name = "session-costs.json") => Path.Combine(_dir, "usage", name);
 
-    private static SessionCost Cost(string id, double prem = 1, double nano = 2e9, long inp = 10, long outp = 5, long cr = 3, long cw = 2) =>
-        new() { SessionId = id, Title = "t-" + id, PremiumRequests = prem, NanoAiu = nano, InputTokens = inp, OutputTokens = outp, CacheReadTokens = cr, CacheWriteTokens = cw };
+    private static SessionCost Cost(string id, double nano = 2e9, long inp = 10, long outp = 5, long cr = 3, long cw = 2) =>
+        new() { SessionId = id, Title = "t-" + id, NanoAiu = nano, InputTokens = inp, OutputTokens = outp, CacheReadTokens = cr, CacheWriteTokens = cw };
 
-    private static UsageSnapshot Snap(double prem, double nano, long inp, long outp, double mReq, double aReq) => new()
+    private static UsageSnapshot Snap(double nano, long inp, long outp, double mReq, double aReq) => new()
     {
-        PremiumRequests = prem, NanoAiu = nano, InputTokens = inp, OutputTokens = outp, CacheReadTokens = inp / 2, CacheWriteTokens = inp / 4,
-        Models = { ["gpt"] = new ModelCost { Requests = mReq, PremiumCost = prem, NanoAiu = nano, InputTokens = inp, OutputTokens = outp } },
-        Agents = { ["coder"] = new AgentCost { DisplayName = "Coder", Requests = aReq, PremiumCost = prem / 2, NanoAiu = nano / 2, InputTokens = inp / 2, OutputTokens = outp / 2 } },
+        NanoAiu = nano, InputTokens = inp, OutputTokens = outp, CacheReadTokens = inp / 2, CacheWriteTokens = inp / 4,
+        Models = { ["gpt"] = new ModelCost { Requests = mReq, NanoAiu = nano, InputTokens = inp, OutputTokens = outp } },
+        Agents = { ["coder"] = new AgentCost { DisplayName = "Coder", Requests = aReq, NanoAiu = nano / 2, InputTokens = inp / 2, OutputTokens = outp / 2 } },
     };
 
     // AC-3 settings
@@ -56,7 +56,7 @@ public class SessionCostAcceptanceTests : IDisposable
         var ledger = new UsageLedger(path, new CapLogger());
         var c = Cost("s1");
         c.ReasoningTokens = 7;
-        c.Models["gpt"] = new ModelCost { Requests = 2, PremiumCost = 1, NanoAiu = 2e9, InputTokens = 10 };
+        c.Models["gpt"] = new ModelCost { Requests = 2, NanoAiu = 2e9, InputTokens = 10 };
         c.Agents["coder"] = new AgentCost { DisplayName = "Coder", Requests = 1, NanoAiu = 1e9 };
         await ledger.RecordAsync(c);
         Assert.True(File.Exists(path));
@@ -64,8 +64,7 @@ public class SessionCostAcceptanceTests : IDisposable
         var reopened = new UsageLedger(path, new CapLogger());
         var got = reopened.Get("s1");
         Assert.NotNull(got);
-        Assert.Equal(1, got!.PremiumRequests);
-        Assert.Equal(2.0, got.AiCredits, 6);
+        Assert.Equal(2.0, got!.AiCredits, 6);
         Assert.Equal(10, got.InputTokens);
         Assert.Equal(5, got.OutputTokens);
         Assert.Equal(3, got.CacheReadTokens);
@@ -85,11 +84,11 @@ public class SessionCostAcceptanceTests : IDisposable
         var ledger = new UsageLedger(NewPath(), new CapLogger());
         int changed = 0;
         ledger.Changed += () => changed++;
-        await ledger.RecordAsync(Cost("a", prem: 1));
-        await ledger.RecordAsync(Cost("a", prem: 4));
+        await ledger.RecordAsync(Cost("a", nano: 1e9));
+        await ledger.RecordAsync(Cost("a", nano: 4e9));
         Assert.Equal(2, changed);
         Assert.Single(ledger.GetAll());
-        Assert.Equal(4, ledger.Get("a")!.PremiumRequests);
+        Assert.Equal(4e9, ledger.Get("a")!.NanoAiu);
     }
 
     // AC-1 totals
@@ -99,13 +98,12 @@ public class SessionCostAcceptanceTests : IDisposable
         var path = NewPath();
         var ledger = new UsageLedger(path, new CapLogger());
         Assert.Equal(0, ledger.GetTotals().SessionCount);
-        await ledger.RecordAsync(Cost("a", 1.5, 2e9, 10, 5, 3, 2));
-        await ledger.RecordAsync(Cost("b", 3, 0.5e9, 100, 50, 30, 20));
+        await ledger.RecordAsync(Cost("a", 2e9, 10, 5, 3, 2));
+        await ledger.RecordAsync(Cost("b", 0.5e9, 100, 50, 30, 20));
         foreach (var l in new[] { ledger, new UsageLedger(path, new CapLogger()) })
         {
             var t = l.GetTotals();
             Assert.Equal(2, t.SessionCount);
-            Assert.Equal(4.5, t.PremiumRequests, 9);
             Assert.Equal(2.5e9, t.NanoAiu, 3);
             Assert.Equal(2.5, t.AiCredits, 9);
             Assert.Equal(110, t.InputTokens);
@@ -121,28 +119,26 @@ public class SessionCostAcceptanceTests : IDisposable
     {
         var path = NewPath();
         var l1 = new UsageLedger(path, new CapLogger());
-        var first = UsageAccumulator.Apply("s", null, UsageSnapshot.Zero, Snap(2, 4e9, 100, 40, 3, 2), "hello");
+        var first = UsageAccumulator.Apply("s", null, UsageSnapshot.Zero, Snap(4e9, 100, 40, 3, 2), "hello");
         await l1.RecordAsync(first);
 
         // restart; SDK metrics on resume report cumulative values (baseline = 2/4e9/100...)
         var l2 = new UsageLedger(path, new CapLogger());
         var stored = l2.Get("s")!;
-        var baseline = Snap(2, 4e9, 100, 40, 3, 2);
+        var baseline = Snap(4e9, 100, 40, 3, 2);
 
         // immediately after resume: nothing new
         var r0 = UsageAccumulator.Apply("s", stored, baseline, baseline);
-        Assert.Equal(2, r0.PremiumRequests);
         Assert.Equal(4e9, r0.NanoAiu);
         Assert.Equal(100, r0.InputTokens);
 
         // successive cumulative snapshots; each applied against same stored+baseline
-        var r1 = UsageAccumulator.Apply("s", stored, baseline, Snap(3, 6e9, 150, 60, 4, 3));
+        var r1 = UsageAccumulator.Apply("s", stored, baseline, Snap(6e9, 150, 60, 4, 3));
         await l2.RecordAsync(r1);
-        var r2 = UsageAccumulator.Apply("s", stored, baseline, Snap(5, 10e9, 250, 100, 6, 5));
+        var r2 = UsageAccumulator.Apply("s", stored, baseline, Snap(10e9, 250, 100, 6, 5));
         await l2.RecordAsync(r2);
 
         var final = new UsageLedger(path, new CapLogger()).Get("s")!;
-        Assert.Equal(5, final.PremiumRequests);          // 2 + (5-2)
         Assert.Equal(10e9, final.NanoAiu);               // 4 + (10-4)
         Assert.Equal(250, final.InputTokens);
         Assert.Equal(100, final.OutputTokens);
@@ -153,19 +149,18 @@ public class SessionCostAcceptanceTests : IDisposable
         Assert.Equal("hello", final.Title);
         Assert.Equal(first.FirstSeen, final.FirstSeen);
         // inputs not mutated
-        Assert.Equal(2, stored.PremiumRequests);
-        Assert.Equal(2, baseline.PremiumRequests);
+        Assert.Equal(4e9, stored.NanoAiu);
+        Assert.Equal(4e9, baseline.NanoAiu);
     }
 
     [Fact]
     public void Apply_NegativeDeltaClampedToZero_AndNewModelsAdded()
     {
-        var stored = Cost("s", 5, 5e9, 50, 20, 0, 0);
-        var baseline = Snap(10, 10e9, 500, 200, 5, 5);
-        var current = Snap(8, 8e9, 400, 100, 7, 4); // lower than baseline (counter reset)
+        var stored = Cost("s", 5e9, 50, 20, 0, 0);
+        var baseline = Snap(10e9, 500, 200, 5, 5);
+        var current = Snap(8e9, 400, 100, 7, 4); // lower than baseline (counter reset)
         current.Models["claude"] = new ModelCost { Requests = 1, NanoAiu = 1e9, InputTokens = 9 };
         var r = UsageAccumulator.Apply("s", stored, baseline, current);
-        Assert.Equal(5, r.PremiumRequests);
         Assert.Equal(5e9, r.NanoAiu);
         Assert.Equal(50, r.InputTokens);
         Assert.Equal(20, r.OutputTokens);
@@ -176,9 +171,8 @@ public class SessionCostAcceptanceTests : IDisposable
     [Fact]
     public void Apply_NewSession_UsesCurrentMinusZeroBaseline()
     {
-        var r = UsageAccumulator.Apply("n", null, UsageSnapshot.Zero, Snap(1, 3e9, 20, 10, 1, 1), "title");
+        var r = UsageAccumulator.Apply("n", null, UsageSnapshot.Zero, Snap(3e9, 20, 10, 1, 1), "title");
         Assert.Equal("n", r.SessionId);
-        Assert.Equal(1, r.PremiumRequests);
         Assert.Equal(3.0, r.AiCredits, 9);
         Assert.Equal("title", r.Title);
     }
@@ -220,11 +214,11 @@ public class SessionCostAcceptanceTests : IDisposable
         var path = NewPath();
         var ledger = new UsageLedger(path, new CapLogger());
         const int n = 100;
-        await Task.WhenAll(Enumerable.Range(0, n).Select(i => Task.Run(() => ledger.RecordAsync(Cost("s" + i, prem: i)))));
+        await Task.WhenAll(Enumerable.Range(0, n).Select(i => Task.Run(() => ledger.RecordAsync(Cost("s" + i, nano: i * 1e9)))));
         Assert.Equal(n, ledger.GetAll().Count);
         var reopened = new UsageLedger(path, new CapLogger());
         Assert.Equal(n, reopened.GetAll().Count);
-        Assert.Equal(Enumerable.Range(0, n).Sum(i => (double)i), reopened.GetTotals().PremiumRequests);
+        Assert.Equal(Enumerable.Range(0, n).Sum(i => (double)i), reopened.GetTotals().AiCredits, 6);
         using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.corrupt-*"));
     }
@@ -238,7 +232,7 @@ public class SessionCostAcceptanceTests : IDisposable
         for (int i = 0; i < 60; i++)
         {
             int k = i;
-            tasks.Add(Task.Run(() => ledger.RecordAsync(Cost("same", prem: k))));
+            tasks.Add(Task.Run(() => ledger.RecordAsync(Cost("same", nano: k * 1e9))));
             tasks.Add(Task.Run(() => ledger.RecordAsync(Cost("other" + k % 5))));
             tasks.Add(Task.Run(() => { _ = ledger.GetAll(); _ = ledger.GetTotals(); _ = ledger.Get("same"); }));
         }
@@ -246,7 +240,7 @@ public class SessionCostAcceptanceTests : IDisposable
         Assert.Equal(6, ledger.GetAll().Count);
         var reopened = new UsageLedger(path, new CapLogger());
         Assert.Equal(6, reopened.GetAll().Count);
-        Assert.Equal(ledger.Get("same")!.PremiumRequests, reopened.Get("same")!.PremiumRequests);
+        Assert.Equal(ledger.Get("same")!.NanoAiu, reopened.Get("same")!.NanoAiu);
         using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
     }
 
