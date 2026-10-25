@@ -358,9 +358,42 @@
                         break;
                     case ChatEntryKind.Tool:
                         <div class="entry tool @_colors.CssClassFor(entry.Author)">
-                            <span class="author">@entry.Author</span>
-                            <code>@entry.Text</code>
-                            <span class="status @StatusClass(entry)">@StatusText(entry)</span>
+                            <details>
+                                <summary>
+                                    <span class="author">@entry.Author</span>
+                                    <code>@entry.Text</code>
+                                    @if (!string.IsNullOrEmpty(entry.ToolSummary))
+                                    {
+                                        <span class="tool-summary">@entry.ToolSummary</span>
+                                    }
+                                    <span class="status @StatusClass(entry)">@StatusText(entry)</span>
+                                </summary>
+                                <div class="tool-details">
+                                    @if (!string.IsNullOrEmpty(entry.ToolArguments))
+                                    {
+                                        <div class="tool-section-title">Arguments</div>
+                                        <pre>@entry.ToolArguments</pre>
+                                        @if (entry.ToolArgumentsTruncated)
+                                        {
+                                            <div class="tool-truncated">Arguments truncated to the first @ToolCallFormatter.MaxArgumentsLength characters.</div>
+                                        }
+                                    }
+                                    @if (!string.IsNullOrEmpty(entry.ToolResult))
+                                    {
+                                        <div class="tool-section-title">Result</div>
+                                        <pre>@entry.ToolResult</pre>
+                                        @if (entry.ToolResultTruncated)
+                                        {
+                                            <div class="tool-truncated">Result truncated to the first @ToolCallFormatter.MaxResultLength characters.</div>
+                                        }
+                                    }
+                                    @if (!string.IsNullOrEmpty(entry.ToolError))
+                                    {
+                                        <div class="tool-section-title">Error</div>
+                                        <pre class="tool-error">@entry.ToolError</pre>
+                                    }
+                                </div>
+                            </details>
                         </div>
                         break;
                     case ChatEntryKind.Activity:
