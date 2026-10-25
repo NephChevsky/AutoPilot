@@ -32,10 +32,12 @@ You are responsible for the outcome, not for writing the implementation yourself
 
 Create a task with `create_repository_task` only for:
 
-1. LOW or non-blocking reviewer findings that you decided not to fix in this run.
+1. Non-blocking MEDIUM-severity reviewer findings that you decided not to fix in this run.
 2. Changes that are required in another repository for the feature to work.
 
 Never create a task for in-scope work, acceptance criteria, or corrections; those are handled in this conversation.
+
+Never create a task for a LOW-severity reviewer finding. List any unfixed LOW findings in the final report instead.
 
 - Announce cross-repository tasks in the plan (under "Implementation plan"), including whether they block the feature. Create them only after the plan is approved.
 - Write each description so it is self-contained: the goal, the required change, the relevant interfaces and context, and why it is needed. The reader has no access to this conversation.
@@ -199,7 +201,7 @@ Begin with `STATUS: SUCCESS`, `STATUS: NEEDS_ATTENTION`, `STATUS: FAILED`, or `S
 - Build and test results from `run_verification`.
 - Branch and push result from `commit_and_push` (branch name, commit, and PUSHED or the failure).
 - Whether the Tester was used, and why.
-- Review findings and resolutions.
+- Review findings and resolutions, including any unfixed LOW findings.
 - Repository tasks: created (id, repository, title) and declined.
 - Number of correction cycles used.
 - Outstanding risks or limitations.
