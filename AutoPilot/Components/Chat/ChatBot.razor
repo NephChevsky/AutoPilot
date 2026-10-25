@@ -399,6 +399,17 @@
                     case ChatEntryKind.Activity:
                         <div class="entry activity">@entry.Text</div>
                         break;
+                    case ChatEntryKind.Reasoning:
+                        <div class="entry reasoning @_colors.CssClassFor(entry.Author)">
+                            <details>
+                                <summary><span class="author">@entry.Author · Reasoning</span></summary>
+                                <div class="reasoning-body markdown">@((MarkupString)MarkdownRenderer.ToHtml(entry.Text))</div>
+                            </details>
+                        </div>
+                        break;
+                    case ChatEntryKind.Intent:
+                        <div class="entry intent @_colors.CssClassFor(entry.Author)">@entry.Author: @entry.Text</div>
+                        break;
                     case ChatEntryKind.Error:
                         <div class="entry error">@entry.Text</div>
                         break;

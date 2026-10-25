@@ -187,5 +187,127 @@ namespace AutoPilot.Tests
 
             Assert.Equal("Sub-agent", Assert.Single(transcript.GetEntries()).Author);
         }
+
+        private static AssistantReasoningDeltaEvent ReasoningDelta(string id, string text, string? agentId = null) =>
+            new() { AgentId = agentId, Data = new AssistantReasoningDeltaData { ReasoningId = id, DeltaContent = text } };
+
+        private static AssistantReasoningEvent Reasoning(string id, string text, string? agentId = null) =>
+            new() { AgentId = agentId, Data = new AssistantReasoningData { ReasoningId = id, Content = text } };
+
+        private static AssistantIntentEvent Intent(string text, string? agentId = null) =>
+            new() { AgentId = agentId, Data = new AssistantIntentData { Intent = text } };
+
+        [Fact]
+        public void Reasoning_deltas_create_then_append_and_attribute_agent()
+        {
+            var transcript = Create();
+            transcript.Apply(Started("tc1", "a1", "Developer"));
+
+            Assert.True(transcript.Apply(ReasoningDelta("r1", "Think", "a1")));
+            Assert.True(transcript.Apply(ReasoningDelta("r1", "ing", "a1")));
+
+            var entry = Assert.Single(transcript.GetEntries(), e => e.Kind == ChatEntryKind.Reasoning);
+            Assert.Equal("Thinking", entry.Text);
+            Assert.Equal("r1", entry.Key);
+            Assert.Equal("Developer", entry.Author);
+            Assert.True(entry.IsSubagent);
+        }
+
+        [Fact]
+        public void Reasoning_orchestrator_delta_is_not_subagent()
+        {
+            var transcript = Create();
+            transcript.Apply(ReasoningDelta("r1", "x"));
+
+            var entry = Assert.Single(transcript.GetEntries());
+            Assert.Equal("Boss", entry.Author);
+            Assert.False(entry.IsSubagent);
+        }
+
+        [Fact]
+        public void Empty_reasoning_delta_or_content_for_unknown_id_creates_nothing()
+        {
+            var transcript = Create();
+
+            Assert.False(transcript.Apply(ReasoningDelta("r1", "")));
+            Assert.False(transcript.Apply(Reasoning("r2", "")));
+            Assert.Empty(transcript.GetEntries());
+        }
+
+        [Fact]
+        public void Reasoning_event_replaces_streamed_text_or_creates_entry()
+        {
+            var transcript = Create();
+            transcript.Apply(ReasoningDelta("r1", "partial"));
+
+            Assert.True(transcript.Apply(Reasoning("r1", "complete")));
+            Assert.True(transcript.Apply(Reasoning("r2", "other")));
+
+            var entries = transcript.GetEntries();
+            Assert.Equal(2, entries.Count);
+            Assert.Equal("complete", entries[0].Text);
+            Assert.Equal("other", entries[1].Text);
+        }
+
+        [Fact]
+        public void Reasoning_and_message_with_same_id_do_not_collide()
+        {
+            var transcript = Create();
+            transcript.Apply(new AssistantMessageEvent { Data = new AssistantMessageData { MessageId = "x", Content = "msg" } });
+            transcript.Apply(ReasoningDelta("x", "why"));
+
+            var entries = transcript.GetEntries();
+            Assert.Equal(2, entries.Count);
+            Assert.Equal("msg", entries[0].Text);
+            Assert.Equal(ChatEntryKind.Reasoning, entries[1].Kind);
+            Assert.Equal("why", entries[1].Text);
+        }
+
+        [Fact]
+        public void Intent_is_added_per_agent_trimmed_and_deduplicated()
+        {
+            var transcript = Create();
+            transcript.Apply(Started("tc1", "a1", "Developer"));
+
+            Assert.True(transcript.Apply(Intent("  Exploring code  ")));
+            Assert.False(transcript.Apply(Intent("Exploring code")));
+            Assert.True(transcript.Apply(Intent("Exploring code", "a1")));
+            Assert.True(transcript.Apply(Intent("Writing tests")));
+            Assert.True(transcript.Apply(Intent("Exploring code")));
+
+            var intents = transcript.GetEntries().Where(e => e.Kind == ChatEntryKind.Intent).ToList();
+            Assert.Equal(4, intents.Count);
+            Assert.Equal("Exploring code", intents[0].Text);
+            Assert.Equal("Boss", intents[0].Author);
+            Assert.False(intents[0].IsSubagent);
+            Assert.Equal("Developer", intents[1].Author);
+            Assert.True(intents[1].IsSubagent);
+        }
+
+        [Fact]
+        public void Blank_intent_is_ignored()
+        {
+            var transcript = Create();
+
+            Assert.False(transcript.Apply(Intent("")));
+            Assert.False(transcript.Apply(Intent("   ")));
+            Assert.Empty(transcript.GetEntries());
+        }
+
+        [Fact]
+        public void Replay_includes_reasoning_and_intent_in_order()
+        {
+            var transcript = Create();
+            transcript.Replay(
+            [
+                Intent("Planning"),
+                Reasoning("r1", "because"),
+                new AssistantMessageEvent { Data = new AssistantMessageData { MessageId = "m1", Content = "hi" } },
+            ]);
+
+            var entries = transcript.GetEntries();
+            Assert.Equal([ChatEntryKind.Intent, ChatEntryKind.Reasoning, ChatEntryKind.Assistant], entries.Select(e => e.Kind));
+            Assert.Equal("because", entries[1].Text);
+        }
     }
 }
