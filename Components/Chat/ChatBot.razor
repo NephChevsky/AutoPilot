@@ -1,0 +1,165 @@
+@using AutoPilot.Services
+@using Microsoft.Extensions.Options
+@implements IDisposable
+@inject AgentChatSession Chat
+@inject AgentCatalog Catalog
+@inject IOptions<AutoPilotSettings> Settings
+
+<div class="chatbot">
+    <header class="chat-header">
+        <div class="agents">
+            @foreach (var agent in _agents)
+            {
+                <span class="agent-chip @(IsOrchestrator(agent) ? "orchestrator" : "")" title="@agent.Description">
+                    <strong>@agent.DisplayName</strong>
+                    @if (agent.Model is not null)
+                    {
+                        <small>@agent.Model</small>
+                    }
+                </span>
+            }
+        </div>
+        <button type="button" class="btn secondary" @onclick="ResetAsync" disabled="@Chat.IsBusy">New conversation</button>
+    </header>
+
+    <div class="messages">
+        <div class="messages-inner">
+            @if (_loadError is not null)
+            {
+                <div class="entry error">@_loadError</div>
+            }
+
+            @foreach (var entry in Chat.GetEntries())
+            {
+                switch (entry.Kind)
+                {
+                    case ChatEntryKind.User:
+                        <div class="entry user"><div class="bubble">@entry.Text</div></div>
+                        break;
+                    case ChatEntryKind.Assistant:
+                        <div class="entry assistant @(entry.IsSubagent ? "subagent" : "")">
+                            <div class="author">@entry.Author</div>
+                            <div class="bubble">@entry.Text</div>
+                        </div>
+                        break;
+                    case ChatEntryKind.Tool:
+                        <div class="entry tool @(entry.IsSubagent ? "subagent" : "")">
+                            <span class="author">@entry.Author</span>
+                            <code>@entry.Text</code>
+                            <span class="status @StatusClass(entry)">@StatusText(entry)</span>
+                        </div>
+                        break;
+                    case ChatEntryKind.Activity:
+                        <div class="entry activity">@entry.Text</div>
+                        break;
+                    case ChatEntryKind.Error:
+                        <div class="entry error">@entry.Text</div>
+                        break;
+                }
+            }
+
+            @if (Chat.IsBusy && Chat.PendingQuestion is null)
+            {
+                <div class="entry activity working">Working...</div>
+            }
+        </div>
+    </div>
+
+    @if (Chat.PendingQuestion is { } question)
+    {
+        <div class="question">
+            <div class="question-text">@question.Question</div>
+            @if (question.Choices is { Count: > 0 } choices)
+            {
+                <div class="choices">
+                    @foreach (var choice in choices)
+                    {
+                        <button type="button" class="btn secondary" @onclick="() => Chat.AnswerAsync(choice, wasFreeform: false)">@choice</button>
+                    }
+                </div>
+            }
+            @if (question.AllowFreeform != false)
+            {
+                <form class="composer" @onsubmit="AnswerAsync">
+                    <input @bind="_answer" @bind:event="oninput" placeholder="Your answer..." />
+                    <button type="submit" class="btn" disabled="@string.IsNullOrWhiteSpace(_answer)">Answer</button>
+                </form>
+            }
+        </div>
+    }
+
+    <form class="composer" @onsubmit="SendAsync">
+        <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@Chat.IsBusy" />
+        @if (Chat.IsBusy)
+        {
+            <button type="button" class="btn danger" @onclick="Chat.AbortAsync">Stop</button>
+        }
+        else
+        {
+            <button type="submit" class="btn" disabled="@string.IsNullOrWhiteSpace(_draft)">Send</button>
+        }
+    </form>
+</div>
+
+@code {
+    private IReadOnlyList<AgentDefinition> _agents = [];
+    private string? _loadError;
+    private string _draft = "";
+    private string _answer = "";
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            _agents = Catalog.LoadAgents();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+
+        Chat.Changed += OnChatChanged;
+    }
+
+    private async Task SendAsync()
+    {
+        var prompt = _draft;
+        _draft = "";
+        await Chat.SendAsync(prompt);
+    }
+
+    private async Task AnswerAsync()
+    {
+        var answer = _answer;
+        _answer = "";
+        await Chat.AnswerAsync(answer, wasFreeform: true);
+    }
+
+    private async Task ResetAsync()
+    {
+        _draft = "";
+        _answer = "";
+        await Chat.ResetAsync();
+    }
+
+    private bool IsOrchestrator(AgentDefinition agent) =>
+        string.Equals(agent.Name, Settings.Value.OrchestratorAgent, StringComparison.OrdinalIgnoreCase);
+
+    private static string StatusClass(ChatEntry entry) => entry.Succeeded switch
+    {
+        true => "ok",
+        false => "failed",
+        null => "running",
+    };
+
+    private static string StatusText(ChatEntry entry) => entry.Succeeded switch
+    {
+        true => "done",
+        false => "failed",
+        null => "running",
+    };
+
+    private Task OnChatChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Chat.Changed -= OnChatChanged;
+}

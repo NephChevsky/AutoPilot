@@ -1,0 +1,219 @@
+.chatbot {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 960px;
+    margin: 0 auto;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 0.95rem;
+}
+
+.chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e3e3e3;
+}
+
+.agents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.agent-chip {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: #f1f3f5;
+    border: 1px solid #dee2e6;
+}
+
+    .agent-chip.orchestrator {
+        background: #e7f1ff;
+        border-color: #9ec5fe;
+    }
+
+    .agent-chip small {
+        color: #6c757d;
+    }
+
+/* column-reverse keeps the view pinned to the latest message without JS. */
+.messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+    padding: 1rem;
+}
+
+.messages-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.entry {
+    max-width: 85%;
+}
+
+    .entry .bubble {
+        white-space: pre-wrap;
+        word-break: break-word;
+        padding: 0.6rem 0.8rem;
+        border-radius: 0.75rem;
+    }
+
+    .entry .author {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 0.2rem;
+    }
+
+    .entry.user {
+        align-self: flex-end;
+    }
+
+        .entry.user .bubble {
+            background: #0d6efd;
+            color: white;
+        }
+
+    .entry.assistant .bubble {
+        background: #f1f3f5;
+    }
+
+    .entry.assistant.subagent {
+        margin-left: 1.5rem;
+    }
+
+        .entry.assistant.subagent .bubble {
+            background: #fff8e6;
+            border: 1px solid #ffe08a;
+        }
+
+    .entry.tool {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+        .entry.tool.subagent {
+            margin-left: 1.5rem;
+        }
+
+        .entry.tool .author {
+            margin: 0;
+        }
+
+    .entry.activity {
+        align-self: center;
+        font-size: 0.8rem;
+        color: #6c757d;
+        font-style: italic;
+    }
+
+    .entry.error {
+        align-self: stretch;
+        max-width: none;
+        white-space: pre-wrap;
+        color: #842029;
+        background: #f8d7da;
+        border: 1px solid #f5c2c7;
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+.status.ok {
+    color: #198754;
+}
+
+.status.failed {
+    color: #dc3545;
+}
+
+.status.running {
+    color: #fd7e14;
+}
+
+.working {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.4;
+    }
+}
+
+.question {
+    border-top: 1px solid #e3e3e3;
+    background: #e7f1ff;
+    padding: 0.75rem 1rem 0;
+}
+
+.question-text {
+    font-weight: 600;
+    white-space: pre-wrap;
+    margin-bottom: 0.5rem;
+}
+
+.choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.composer {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid #e3e3e3;
+}
+
+.question .composer {
+    border-top: none;
+    padding: 0 0 0.75rem;
+}
+
+.composer input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ced4da;
+    border-radius: 0.5rem;
+    font: inherit;
+}
+
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: #0d6efd;
+    color: white;
+    font: inherit;
+    cursor: pointer;
+}
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    .btn.secondary {
+        background: #e9ecef;
+        color: #212529;
+    }
+
+    .btn.danger {
+        background: #dc3545;
+    }
