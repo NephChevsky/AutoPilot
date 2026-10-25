@@ -12,6 +12,7 @@ namespace AutoPilot.Services
         AgentCatalog catalog,
         IOptions<AutoPilotSettings> options,
         UsageLedger ledger,
+        ConversationWorktrees worktrees,
         ILogger<AgentChatSession> logger) : IAsyncDisposable
     {
         private readonly Lock _gate = new();
@@ -39,6 +40,9 @@ namespace AutoPilot.Services
         /// <summary>Id of the open conversation; null until the first message of a new conversation is sent.</summary>
         public string? CurrentSessionId { get; private set; }
 
+        /// <summary>Dedicated git branch of the open conversation; null when none is open or it is a legacy conversation.</summary>
+        public string? CurrentBranch { get; private set; }
+
         /// <summary>Saved cost of the open conversation (null until it has been recorded).</summary>
         public SessionCost? CurrentCost { get; private set; }
 
@@ -64,6 +68,10 @@ namespace AutoPilot.Services
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to send message to the Copilot session.");
+                if (_session is null)
+                {
+                    CurrentBranch = null;
+                }
                 Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = ex.Message });
                 IsBusy = false;
                 await NotifyAsync();
@@ -113,6 +121,7 @@ namespace AutoPilot.Services
             await CloseSessionAsync();
             _transcript.Clear();
             CurrentSessionId = null;
+            CurrentBranch = null;
             IsBusy = false;
             await NotifyAsync();
         }
@@ -123,15 +132,43 @@ namespace AutoPilot.Services
             await CloseSessionAsync();
         }
 
-        /// <summary>Lists previous conversations of the configured working directory, newest first.</summary>
+        /// <summary>Lists previous conversations of the configured working directory and of its conversation worktrees, newest first.</summary>
         public async Task<IReadOnlyList<SessionMetadata>> ListConversationsAsync(CancellationToken cancellationToken = default)
         {
-            var workingDirectory = options.Value.ResolveWorkingDirectory();
-            var sessions = await client.ListSessionsAsync(new SessionListFilter { WorkingDirectory = workingDirectory }, cancellationToken);
-            var expected = NormalizePath(workingDirectory);
+            var settings = options.Value;
+            var expected = NormalizePath(settings.ResolveWorkingDirectory());
+            var worktreesRoot = NormalizePath(settings.ResolveWorktreesDirectory());
+            // The server filter is an exact match, so worktree conversations are selected client-side.
+            var sessions = await client.ListSessionsAsync(null, cancellationToken);
             return [.. sessions
-                .Where(s => s.Context?.WorkingDirectory is not { } dir || string.Equals(NormalizePath(dir), expected, StringComparison.OrdinalIgnoreCase))
+                .Where(s => IsConversationDirectory(s.Context?.WorkingDirectory, expected, worktreesRoot))
                 .OrderByDescending(s => s.ModifiedTime)];
+        }
+
+        /// <summary>
+        /// True when <paramref name="directory"/> is the main working directory or lies strictly under the worktrees root
+        /// (the root itself is not a conversation directory). Null, empty or malformed paths yield false; never throws.
+        /// Both <paramref name="mainDirectory"/> and <paramref name="worktreesRoot"/> must already be normalized.
+        /// </summary>
+        public static bool IsConversationDirectory(string? directory, string mainDirectory, string worktreesRoot)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return false;
+            }
+
+            string normalized;
+            try
+            {
+                normalized = NormalizePath(directory);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or System.Security.SecurityException)
+            {
+                return false;
+            }
+
+            return string.Equals(normalized, mainDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith(worktreesRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>Closes the current conversation and opens a persisted one, replaying its transcript. No-op while busy.</summary>
@@ -150,6 +187,7 @@ namespace AutoPilot.Services
                 await CloseSessionAsync();
                 _transcript.Clear();
                 CurrentSessionId = null;
+                CurrentBranch = null;
 
                 session = await CreateSessionAsync(sessionId);
                 var events = await session.GetEventsAsync(CancellationToken.None);
@@ -175,6 +213,7 @@ namespace AutoPilot.Services
 
                 await CloseSessionAsync();
                 CurrentSessionId = null;
+                CurrentBranch = null;
                 Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = $"Failed to load conversation: {ex.Message}" });
             }
             finally
@@ -197,8 +236,20 @@ namespace AutoPilot.Services
                 ?? throw new InvalidOperationException($"Orchestrator agent '{settings.OrchestratorAgent}' was not found in '{catalog.AgentsDirectory}'.");
             _transcript.OrchestratorName = orchestrator.DisplayName;
 
-            var workingDirectory = settings.ResolveWorkingDirectory();
-            var tools = new WorkspaceTools(workingDirectory, settings.VerificationCommands, TimeSpan.FromSeconds(settings.VerificationTimeoutSeconds));
+            // New conversation: pre-generate the id so the branch and worktree can be named after it.
+            // Existing conversation: legacy ones (no dedicated branch) keep running in the main directory.
+            string sessionDirectory = settings.ResolveWorkingDirectory();
+            string? branch = null;
+            var sessionId = resumeSessionId ?? Guid.NewGuid().ToString();
+            if (resumeSessionId is null || await worktrees.BranchExistsAsync(resumeSessionId, CancellationToken.None))
+            {
+                var workspace = await worktrees.EnsureAsync(sessionId, CancellationToken.None);
+                sessionDirectory = workspace.Directory;
+                branch = workspace.Branch;
+            }
+
+            var workingDirectory = sessionDirectory;
+            var tools = new WorkspaceTools(workingDirectory, settings.VerificationCommands, TimeSpan.FromSeconds(settings.VerificationTimeoutSeconds), branch, settings.GitRemote);
             await tools.CaptureBaselineAsync(CancellationToken.None);
 
             var customAgents = agents.Select(a => a.ToCustomAgentConfig()).ToList();
@@ -232,11 +283,13 @@ namespace AutoPilot.Services
                     Hooks = hooks,
                 });
                 await TakeBaselineAsync(resumed, resumed: true);
+                CurrentBranch = branch;
                 return resumed;
             }
 
             var session = await client.CreateSessionAsync(new SessionConfig
             {
+                SessionId = sessionId,
                 Model = orchestrator.Model,
                 ReasoningEffort = orchestrator.ReasoningEffort,
                 WorkingDirectory = workingDirectory,
@@ -251,6 +304,7 @@ namespace AutoPilot.Services
 
             _subscription = session.On<SessionEvent>(OnSessionEvent);
             CurrentSessionId = session.SessionId;
+            CurrentBranch = branch;
             await TakeBaselineAsync(session, resumed: false);
             return session;
         }

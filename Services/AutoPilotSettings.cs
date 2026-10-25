@@ -21,6 +21,21 @@ namespace AutoPilot.Services
 
         public int VerificationTimeoutSeconds { get; set; } = 900;
 
+        /// <summary>Folder holding one git worktree per conversation. Empty uses the sibling folder <c>&lt;WorkingDirectory&gt;.worktrees</c> (outside the repository).</summary>
+        public string WorktreesDirectory { get; set; } = "";
+
+        /// <summary>Prefix of the branch created for each conversation; the session id is appended.</summary>
+        public string BranchPrefix { get; set; } = "autopilot/";
+
+        /// <summary>Name of the git remote the commit_and_push tool pushes to.</summary>
+        public string GitRemote { get; set; } = "origin";
+
+        /// <summary>Resolves the worktrees folder (see <see cref="WorktreesDirectory"/>).</summary>
+        public string ResolveWorktreesDirectory() =>
+            string.IsNullOrWhiteSpace(WorktreesDirectory)
+                ? Path.GetFullPath(ResolveWorkingDirectory()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + ".worktrees"
+                : Path.GetFullPath(WorktreesDirectory);
+
         public string ResolveWorkingDirectory() =>
             string.IsNullOrWhiteSpace(WorkingDirectory)
                 ? Directory.GetCurrentDirectory()

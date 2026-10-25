@@ -4,6 +4,34 @@ namespace AutoPilot.Tests
 {
     public class AutoPilotSettingsTests
     {
+        [Fact]
+        public void Worktree_settings_have_defaults()
+        {
+            var settings = new AutoPilotSettings();
+
+            Assert.Equal("autopilot/", settings.BranchPrefix);
+            Assert.Equal("origin", settings.GitRemote);
+            Assert.Equal("", settings.WorktreesDirectory);
+        }
+
+        [Fact]
+        public void ResolveWorktreesDirectory_defaults_to_sibling_of_working_directory()
+        {
+            var repo = Path.Combine(Path.GetTempPath(), "my-repo");
+            var settings = new AutoPilotSettings { WorkingDirectory = repo };
+
+            Assert.Equal(Path.GetFullPath(repo) + ".worktrees", settings.ResolveWorktreesDirectory());
+        }
+
+        [Fact]
+        public void ResolveWorktreesDirectory_uses_configured_path()
+        {
+            var path = Path.Combine(Path.GetTempPath(), "wt");
+            var settings = new AutoPilotSettings { WorktreesDirectory = path };
+
+            Assert.Equal(Path.GetFullPath(path), settings.ResolveWorktreesDirectory());
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData("   ")]

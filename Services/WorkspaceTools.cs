@@ -10,13 +10,14 @@ namespace AutoPilot.Services
     /// Host-implemented tools referenced by the agent definitions: <c>get_diff</c> and <c>run_verification</c>.
     /// One instance per conversation, so the diff baseline is the state of the workspace when the run started.
     /// </summary>
-    public sealed class WorkspaceTools(string workingDirectory, IReadOnlyList<string> verificationCommands, TimeSpan verificationTimeout)
+    public sealed class WorkspaceTools(string workingDirectory, IReadOnlyList<string> verificationCommands, TimeSpan verificationTimeout, string? branch = null, string remote = "origin")
     {
         private const int MaxDiffChars = 120_000;
         private const int MaxCommandOutputChars = 12_000;
         private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(2);
 
         private string? _baselineTree;
+        private string? _baselineHead;
         private string? _baselineError;
 
         public async Task CaptureBaselineAsync(CancellationToken cancellationToken)
@@ -24,6 +25,8 @@ namespace AutoPilot.Services
             try
             {
                 _baselineTree = await SnapshotTreeAsync(cancellationToken);
+                // Recorded so preExisting stays correct after commits move HEAD.
+                _baselineHead = (await TryGitAsync(["rev-parse", "--verify", "HEAD"], cancellationToken)) is { ExitCode: 0 } head ? head.StdOut.Trim() : null;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -50,9 +53,91 @@ namespace AutoPilot.Services
                     Name = "run_verification",
                     Description = "Runs the repository's configured build and test commands and returns the real exit codes and output. The result is the authoritative verification outcome.",
                 }),
+            CopilotTool.DefineTool(
+                ([Description("Concise commit message describing the change.")] string message,
+                 CancellationToken cancellationToken = default) => CommitAndPushAsync(message, cancellationToken),
+                new CopilotToolOptions { SkipPermission = true },
+                new AIFunctionFactoryOptions
+                {
+                    Name = "commit_and_push",
+                    Description = "Commits all changes in the conversation's worktree with the given message and pushes the conversation's dedicated branch to the configured remote. Never forces and never pushes another branch. Returns STATUS: PUSHED with branch and commit, or STATUS: FAILED with the error.",
+                }),
         ];
 
-        private async Task<string> GetDiffAsync(bool preExisting, CancellationToken cancellationToken)
+        /// <summary>Commits everything in the worktree (if anything changed) and pushes the conversation branch. Never throws for git failures.</summary>
+        public async Task<string> CommitAndPushAsync(string message, CancellationToken cancellationToken)
+        {
+            if (branch is null)
+            {
+                return "STATUS: FAILED\nThis conversation has no dedicated branch (it was created before per-conversation branches); nothing was committed or pushed.";
+            }
+
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return "STATUS: FAILED\nThe commit message must not be empty.";
+            }
+
+            if (string.IsNullOrEmpty(remote) || remote[0] == '-' || remote.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+            {
+                return "STATUS: FAILED\nThe configured git remote name is invalid (it must be non-empty, must not start with '-' and must not contain whitespace or control characters); nothing was committed.";
+            }
+
+            try
+            {
+                var remoteUrl = await TryGitAsync(["remote", "get-url", remote], cancellationToken);
+                if (remoteUrl.ExitCode != 0)
+                {
+                    return $"STATUS: FAILED\nGit remote '{remote}' is not configured; nothing was committed.\n{remoteUrl.StdErr.Trim()}";
+                }
+
+                var current = await TryGitAsync(["symbolic-ref", "--short", "HEAD"], cancellationToken);
+                if (current.ExitCode != 0 || current.StdOut.Trim() != branch)
+                {
+                    return $"STATUS: FAILED\nThe worktree is not on the conversation branch '{branch}' (current: '{current.StdOut.Trim()}'); nothing was committed.";
+                }
+
+                var add = await TryGitAsync(["add", "--all"], cancellationToken);
+                if (add.ExitCode != 0)
+                {
+                    return $"STATUS: FAILED\ngit add failed: {Describe(add)}";
+                }
+
+                var staged = await TryGitAsync(["diff", "--cached", "--quiet"], cancellationToken);
+                if (staged.ExitCode > 1 || staged.TimedOut)
+                {
+                    return $"STATUS: FAILED\ngit diff --cached failed: {Describe(staged)}";
+                }
+
+                if (staged.ExitCode == 1)
+                {
+                    var commit = await TryGitAsync(["commit", "-m", message], cancellationToken);
+                    if (commit.ExitCode != 0)
+                    {
+                        return $"STATUS: FAILED\ngit commit failed: {Describe(commit)}";
+                    }
+                }
+
+                var head = await TryGitAsync(["rev-parse", "HEAD"], cancellationToken);
+                var sha = head.ExitCode == 0 ? head.StdOut.Trim() : "unknown";
+
+                var push = await TryGitAsync(["push", "-u", remote, $"HEAD:refs/heads/{branch}"], cancellationToken);
+                if (push.ExitCode != 0)
+                {
+                    return $"STATUS: FAILED\ngit push failed (the local commit {sha} is retained on branch {branch}): {Describe(push)}";
+                }
+
+                return $"STATUS: PUSHED\nBranch: {branch}\nRemote: {remote}\nCommit: {sha}{(staged.ExitCode == 0 ? "\n(No new changes to commit; pushed the existing branch head.)" : "")}";
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return $"STATUS: FAILED\n{ex.Message}";
+            }
+        }
+
+        private static string Describe(ProcessResult result) =>
+            result.TimedOut ? "timed out" : $"exit code {result.ExitCode}: {result.Combined.Trim()}";
+
+        public async Task<string> GetDiffAsync(bool preExisting, CancellationToken cancellationToken)
         {
             if (_baselineTree is null)
             {
@@ -62,7 +147,7 @@ namespace AutoPilot.Services
             string from, to;
             if (preExisting)
             {
-                from = "HEAD";
+                from = _baselineHead ?? "HEAD";
                 to = _baselineTree;
             }
             else
@@ -150,6 +235,17 @@ namespace AutoPilot.Services
 
         private async Task<string> GitAsync(string[] arguments, string? indexFile, CancellationToken cancellationToken)
         {
+            var result = await TryGitAsync(arguments, cancellationToken, indexFile);
+            if (result.TimedOut || result.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"git {string.Join(' ', arguments)} failed ({(result.TimedOut ? "timeout" : result.ExitCode)}): {result.StdErr.Trim()}");
+            }
+
+            return result.StdOut;
+        }
+
+        private Task<ProcessResult> TryGitAsync(string[] arguments, CancellationToken cancellationToken, string? indexFile = null)
+        {
             var startInfo = new ProcessStartInfo("git") { WorkingDirectory = workingDirectory };
             foreach (var argument in arguments)
             {
@@ -161,16 +257,12 @@ namespace AutoPilot.Services
                 startInfo.Environment["GIT_INDEX_FILE"] = indexFile;
             }
 
-            var result = await RunProcessAsync(startInfo, GitTimeout, cancellationToken);
-            if (result.TimedOut || result.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"git {string.Join(' ', arguments)} failed ({(result.TimedOut ? "timeout" : result.ExitCode)}): {result.StdErr.Trim()}");
-            }
-
-            return result.StdOut;
+            // Never block waiting for credentials.
+            startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+            return RunProcessAsync(startInfo, GitTimeout, cancellationToken);
         }
 
-        private static async Task<ProcessResult> RunProcessAsync(ProcessStartInfo startInfo, TimeSpan timeout, CancellationToken cancellationToken)
+        internal static async Task<ProcessResult> RunProcessAsync(ProcessStartInfo startInfo, TimeSpan timeout, CancellationToken cancellationToken)
         {
             startInfo.UseShellExecute = false;
             startInfo.CreateNoWindow = true;
@@ -228,6 +320,6 @@ namespace AutoPilot.Services
         private static string Tail(string text, int maxChars) =>
             text.Length <= maxChars ? text : $"... [{text.Length - maxChars} earlier characters omitted]\n{text[^maxChars..]}";
 
-        private sealed record ProcessResult(int ExitCode, string StdOut, string StdErr, string Combined, bool TimedOut);
+        internal sealed record ProcessResult(int ExitCode, string StdOut, string StdErr, string Combined, bool TimedOut);
     }
 }

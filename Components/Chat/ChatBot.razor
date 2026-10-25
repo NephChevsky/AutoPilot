@@ -58,6 +58,10 @@
             }
         </div>
         <div class="cost-summary">
+            @if (Chat.CurrentBranch is { } branch)
+            {
+                <div class="branch-name" title="Conversation branch">Branch: @branch</div>
+            }
             <div>
                 This session:
                 @if (Chat.CurrentCost is { } sessionCost)
