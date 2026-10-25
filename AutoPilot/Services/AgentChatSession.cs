@@ -77,7 +77,7 @@ namespace AutoPilot.Services
         public IReadOnlyList<ChatEntry> GetEntries() => _transcript.GetEntries();
 
         /// <summary>Sends a prompt. Returns true only when the prompt was handed to the session successfully.</summary>
-        public async Task<bool> SendAsync(string prompt)
+        public async Task<bool> SendAsync(string prompt, IReadOnlyList<PromptImage>? images = null)
         {
             if (string.IsNullOrWhiteSpace(prompt) || IsBusy || IsLoading || IsMerging)
             {
@@ -92,30 +92,48 @@ namespace AutoPilot.Services
 
             IsBusy = true;
             _title ??= UsageAccumulator.Truncate(prompt);
-            Add(new ChatEntry { Kind = ChatEntryKind.User, Author = "You", Text = prompt.Trim() });
+            Add(new ChatEntry { Kind = ChatEntryKind.User, Author = "You", Text = prompt.Trim(), Images = images ?? [] });
             await NotifyAsync();
 
             try
             {
                 _session ??= await CreateSessionAsync(resumeSessionId: null, repository!);
-                await _session.SendAsync(new MessageOptions { Prompt = prompt.Trim() });
-                                return true;
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogError(ex, "Failed to send message to the Copilot session.");
-                                if (_session is null)
-                                {
-                                    CurrentSessionId = null;
-                                    CurrentBranch = null;
-                                    CurrentRepository = null;
-                                }
-                                Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = ex.Message });
-                                IsBusy = false;
-                                await NotifyAsync();
-                                return false;
-                            }
+                var message = new MessageOptions { Prompt = prompt.Trim() };
+                var attachments = ToAttachments(images);
+                if (attachments is not null)
+                {
+                    message.Attachments = attachments;
+                }
+
+                await _session.SendAsync(message);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send message to the Copilot session.");
+                if (_session is null)
+                {
+                    CurrentSessionId = null;
+                    CurrentBranch = null;
+                    CurrentRepository = null;
+                }
+                Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = ex.Message });
+                IsBusy = false;
+                await NotifyAsync();
+                return false;
+            }
         }
+
+        /// <summary>Maps prompt images to SDK blob attachments; null when there are none.</summary>
+        internal static List<Attachment>? ToAttachments(IReadOnlyList<PromptImage>? images) =>
+            images is { Count: > 0 }
+                ? [.. images.Select(image => (Attachment)new AttachmentBlob
+                {
+                    Data = Convert.ToBase64String(image.Data),
+                    MimeType = image.MimeType,
+                    DisplayName = image.DisplayName,
+                })]
+                : null;
 
         public async Task AnswerAsync(string answer, bool wasFreeform)
         {

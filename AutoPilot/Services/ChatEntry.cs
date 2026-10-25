@@ -17,6 +17,12 @@ namespace AutoPilot.Services
         public required string Author { get; init; }
         public string Text { get; set; } = "";
 
+        /// <summary>
+        /// Images attached to a user message. An image with empty <see cref="PromptImage.Data"/> is a placeholder
+        /// (replayed attachment without data) and is shown as a label with its display name.
+        /// </summary>
+        public IReadOnlyList<PromptImage> Images { get; init; } = [];
+
         /// <summary>Message id or tool call id used to correlate streaming/completion events.</summary>
         public string? Key { get; init; }
 

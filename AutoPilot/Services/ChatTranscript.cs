@@ -51,6 +51,54 @@ namespace AutoPilot.Services
             }
         }
 
+        // Longest base64 string that can decode to at most PromptImage.MaxBytes (plus padding margin).
+        private const int MaxBase64Length = (int)((PromptImage.MaxBytes + 2) / 3) * 4;
+
+        /// <summary>
+        /// Image blob attachments of a persisted user message. Bytes are used when present, valid base64
+        /// and not larger than <see cref="PromptImage.MaxBytes"/>;
+        /// otherwise an empty-data placeholder carrying the display name is returned.
+        /// </summary>
+        internal static IReadOnlyList<PromptImage> ReplayImages(IEnumerable<Attachment>? attachments)
+        {
+            if (attachments is null)
+            {
+                return [];
+            }
+
+            var images = new List<PromptImage>();
+            foreach (var blob in attachments.OfType<AttachmentBlob>())
+            {
+                if (!PromptImage.IsSupportedMimeType(blob.MimeType))
+                {
+                    continue;
+                }
+
+                byte[] data = [];
+                // Oversized payloads are not decoded (checked on the string length): placeholder instead.
+                if (!string.IsNullOrEmpty(blob.Data) && blob.Data.Length <= MaxBase64Length)
+                {
+                    try
+                    {
+                        data = Convert.FromBase64String(blob.Data);
+                        if (data.Length > PromptImage.MaxBytes)
+                        {
+                            data = [];
+                        }
+                    }
+                    catch (FormatException)
+                    {
+                        data = [];
+                    }
+                }
+
+                var name = string.IsNullOrWhiteSpace(blob.DisplayName) ? "image" : blob.DisplayName;
+                images.Add(new PromptImage(blob.MimeType.Trim(), data, name));
+            }
+
+            return images;
+        }
+
         /// <summary>Records the display name of a sub-agent instance (from the sub-agent start hook).</summary>
         public void RegisterSubagent(string agentId, string name)
         {
@@ -85,7 +133,7 @@ namespace AutoPilot.Services
                             return false;
                         }
 
-                        _entries.Add(new ChatEntry { Kind = ChatEntryKind.User, Author = "You", Text = user.Data.Content });
+                        _entries.Add(new ChatEntry { Kind = ChatEntryKind.User, Author = "You", Text = user.Data.Content, Images = ReplayImages(user.Data.Attachments) });
                         return true;
 
                     case AssistantMessageDeltaEvent delta:
