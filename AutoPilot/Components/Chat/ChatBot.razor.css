@@ -333,18 +333,30 @@
             color: white;
         }
 
+    .entry.agent-color-0 { --agent-color: #1c64c4; --agent-bg: #e7f0fc; }
+    .entry.agent-color-1 { --agent-color: #b4430f; --agent-bg: #fdeee5; }
+    .entry.agent-color-2 { --agent-color: #1b7a3d; --agent-bg: #e6f5ec; }
+    .entry.agent-color-3 { --agent-color: #8a2fb0; --agent-bg: #f4e9fa; }
+    .entry.agent-color-4 { --agent-color: #a16207; --agent-bg: #fcf3dc; }
+    .entry.agent-color-5 { --agent-color: #0e7490; --agent-bg: #e0f4f8; }
+    .entry.agent-color-6 { --agent-color: #be185d; --agent-bg: #fce8f1; }
+    .entry.agent-color-7 { --agent-color: #4d5bc0; --agent-bg: #eceefb; }
+
+    .entry.assistant .author,
+    .entry.tool .author {
+        color: var(--agent-color, #495057);
+    }
+
     .entry.assistant .bubble {
-        background: #f1f3f5;
+        background: var(--agent-bg, #f1f3f5);
+        color: #212529;
+        border: 1px solid var(--agent-color, #dee2e6);
+        border-left-width: 4px;
     }
 
     .entry.assistant.subagent {
         margin-left: 1.5rem;
     }
-
-        .entry.assistant.subagent .bubble {
-            background: #fff8e6;
-            border: 1px solid #ffe08a;
-        }
 
     .entry.tool {
         display: flex;
