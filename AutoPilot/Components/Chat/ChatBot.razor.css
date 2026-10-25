@@ -525,16 +525,22 @@
 .composer {
     display: flex;
     gap: 0.5rem;
+    align-items: flex-end;
     padding: 0.75rem 1rem;
     border-top: 1px solid #e3e3e3;
 }
 
-.composer input {
+.composer textarea {
     flex: 1;
+    box-sizing: border-box;
     padding: 0.5rem 0.75rem;
     border: 1px solid #ced4da;
     border-radius: 0.5rem;
     font: inherit;
+    resize: none;
+    field-sizing: content;
+    max-height: 10rem;
+    overflow-y: auto;
 }
 
 .btn {
