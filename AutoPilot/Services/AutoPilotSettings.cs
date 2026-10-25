@@ -71,6 +71,24 @@ namespace AutoPilot.Services
             return Path.Combine(baseDirectory, "usage", "session-costs.json");
         }
 
+        /// <summary>
+        /// Path of the tasks JSON file. Empty uses <c>&lt;CopilotDirectory&gt;\tasks\tasks.json</c>, or
+        /// <c>&lt;current directory&gt;\Copilot\tasks\tasks.json</c> when no CopilotDirectory is set.
+        /// </summary>
+        public string TasksFile { get; set; } = "";
+
+        /// <summary>Resolves the tasks file path (see <see cref="TasksFile"/>).</summary>
+        public string ResolveTasksFile()
+        {
+            if (!string.IsNullOrWhiteSpace(TasksFile))
+            {
+                return Path.GetFullPath(TasksFile);
+            }
+
+            var baseDirectory = ResolveCopilotDirectory() ?? Path.Combine(Directory.GetCurrentDirectory(), "Copilot");
+            return Path.Combine(baseDirectory, "tasks", "tasks.json");
+        }
+
         public string? ResolveCopilotDirectory() =>
             string.IsNullOrWhiteSpace(CopilotDirectory)
                 ? null

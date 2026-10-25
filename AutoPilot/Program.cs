@@ -32,6 +32,9 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton(sp => new UsageLedger(
     sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveUsageFile(),
     sp.GetRequiredService<ILogger<UsageLedger>>()));
+builder.Services.AddSingleton(sp => new TaskStore(
+    sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveTasksFile(),
+    sp.GetRequiredService<ILogger<TaskStore>>()));
 builder.Services.AddSingleton<RepositoryCatalog>();
 builder.Services.AddScoped<AgentChatSession>();
 

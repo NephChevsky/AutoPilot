@@ -7,9 +7,95 @@
 @inject AgentCatalog Catalog
 @inject IOptions<AutoPilotSettings> Settings
 @inject RepositoryCatalog Repositories
+@inject TaskStore Tasks
 
 <div class="chat-layout">
 <aside class="conversations">
+    <section class="tasks">
+        <div class="conversations-header">
+            <strong>Tasks</strong>
+        </div>
+        @if (_repositories.Count == 0)
+        {
+            <div class="conversation-empty">No repositories found</div>
+        }
+        else
+        {
+            var panelRepository = PanelRepository;
+            IReadOnlyList<RepositoryTask> panelTasks = panelRepository is null ? [] : Tasks.GetForRepository(panelRepository.Path);
+            var chatBlocked = Chat.IsBusy || Chat.IsLoading || Chat.IsMerging;
+            <select class="repo-select task-repo" value="@panelRepository?.Path" @onchange="OnTaskRepositoryChanged">
+                @foreach (var repo in _repositories)
+                {
+                    <option value="@repo.Path">@repo.Name</option>
+                }
+            </select>
+            <div class="task-form">
+                <input type="text" placeholder="Task title" @bind="_taskTitle" @bind:event="oninput" />
+                <textarea rows="2" placeholder="Description (optional)" @bind="_taskDescription" @bind:event="oninput"></textarea>
+                <button type="button" class="btn" @onclick="AddTaskAsync" disabled="@string.IsNullOrWhiteSpace(_taskTitle)">Add task</button>
+            </div>
+            @if (_taskError is not null)
+            {
+                <div class="entry error">@_taskError</div>
+            }
+            <ul class="task-list">
+                @foreach (var task in panelTasks)
+                {
+                    var current = task;
+                    <li class="task @(current.IsSent ? "sent" : "pending")">
+                        @if (_editingTaskId == current.Id && !current.IsSent)
+                        {
+                            <input type="text" @bind="_editTitle" @bind:event="oninput" />
+                            <textarea rows="2" @bind="_editDescription" @bind:event="oninput"></textarea>
+                            <div class="task-actions">
+                                <button type="button" class="btn" @onclick="() => SaveTaskAsync(current)" disabled="@string.IsNullOrWhiteSpace(_editTitle)">Save</button>
+                                <button type="button" class="btn secondary" @onclick="CancelEditTask">Cancel</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="task-title">
+                                @if (current.IsSent)
+                                {
+                                    <span class="task-badge">Sent</span>
+                                }
+                                @current.Title
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(current.Description))
+                            {
+                                <div class="task-description">@current.Description</div>
+                            }
+                            @if (current.IsSent)
+                            {
+                                <small>Sent @current.SentAt!.Value.ToLocalTime().ToString("g")</small>
+                            }
+                            else
+                            {
+                                <small>Created @current.CreatedAt.ToLocalTime().ToString("g")</small>
+                            }
+                            <div class="task-actions">
+                                @if (current.IsSent)
+                                {
+                                    <button type="button" class="btn secondary" @onclick="() => OpenTaskConversationAsync(current)" disabled="@chatBlocked">Open conversation</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn" @onclick="() => SendTaskAsync(current)" disabled="@chatBlocked">Send</button>
+                                    <button type="button" class="btn secondary" @onclick="() => StartEditTask(current)">Edit</button>
+                                }
+                                <button type="button" class="btn danger" @onclick="() => DeleteTaskAsync(current)">Delete</button>
+                            </div>
+                        }
+                    </li>
+                }
+                @if (panelTasks.Count == 0)
+                {
+                    <li class="conversation-empty">No tasks</li>
+                }
+            </ul>
+        }
+    </section>
     <div class="conversations-header">
         <strong>Conversations</strong>
         <button type="button" class="btn secondary" @onclick="ResetAsync" disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">New conversation</button>
@@ -331,6 +417,182 @@
     private bool _mergeConfirm;
     private string? _mergeError;
 
+    // Tasks panel state (its repository selection is separate from the new-conversation one).
+    private string? _taskRepoPath;
+    private string _taskTitle = "";
+    private string _taskDescription = "";
+    private string? _taskError;
+    private string? _editingTaskId;
+    private string _editTitle = "";
+    private string _editDescription = "";
+
+    private RepositoryInfo? PanelRepository
+    {
+        get
+        {
+            if (_taskRepoPath is not null
+                && _repositories.FirstOrDefault(r => string.Equals(r.Path, _taskRepoPath, StringComparison.OrdinalIgnoreCase)) is { } chosen)
+            {
+                return chosen;
+            }
+
+            var preferred = Chat.CurrentRepository ?? Chat.SelectedRepository;
+            return (preferred is null ? null : _repositories.FirstOrDefault(r => string.Equals(r.Path, preferred.Path, StringComparison.OrdinalIgnoreCase)))
+                ?? _repositories.FirstOrDefault();
+        }
+    }
+
+    private void OnTaskRepositoryChanged(ChangeEventArgs e)
+    {
+        _taskRepoPath = e.Value?.ToString();
+        _taskError = null;
+        _editingTaskId = null;
+    }
+
+    private async Task AddTaskAsync()
+    {
+        _taskError = null;
+        var repository = PanelRepository;
+        if (repository is null)
+        {
+            _taskError = "Select a repository first.";
+            return;
+        }
+
+        try
+        {
+            await Tasks.CreateAsync(repository, _taskTitle, _taskDescription);
+            _taskTitle = "";
+            _taskDescription = "";
+        }
+        catch (Exception ex)
+        {
+            _taskError = $"Failed to add the task: {ex.Message}";
+        }
+    }
+
+    private void StartEditTask(RepositoryTask task)
+    {
+        _taskError = null;
+        _editingTaskId = task.Id;
+        _editTitle = task.Title;
+        _editDescription = task.Description ?? "";
+    }
+
+    private void CancelEditTask() => _editingTaskId = null;
+
+    private async Task SaveTaskAsync(RepositoryTask task)
+    {
+        _taskError = null;
+        try
+        {
+            if (!await Tasks.UpdateAsync(task.Id, _editTitle, _editDescription))
+            {
+                _taskError = "The task no longer exists or was already sent.";
+            }
+
+            _editingTaskId = null;
+        }
+        catch (Exception ex)
+        {
+            _taskError = $"Failed to save the task: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteTaskAsync(RepositoryTask task)
+    {
+        _taskError = null;
+        try
+        {
+            await Tasks.DeleteAsync(task.Id);
+            if (_editingTaskId == task.Id)
+            {
+                _editingTaskId = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _taskError = $"Failed to delete the task: {ex.Message}";
+        }
+    }
+
+    private async Task SendTaskAsync(RepositoryTask task)
+    {
+        _taskError = null;
+        if (Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)
+        {
+            return;
+        }
+
+        // Validate everything before touching the open conversation or drafts.
+        var current = Tasks.Get(task.Id);
+        if (current is null || current.IsSent)
+        {
+            _taskError = "The task no longer exists or was already sent.";
+            return;
+        }
+
+        var repository = Repositories.GetRepositories()
+            .FirstOrDefault(r => string.Equals(r.Path, current.RepositoryPath, StringComparison.OrdinalIgnoreCase));
+        if (repository is null)
+        {
+            _taskError = $"Repository '{task.RepositoryName}' was not found.";
+            return;
+        }
+
+        ResetDiff();
+        _draft = "";
+        _answer = "";
+        await Chat.ResetAsync();
+        RefreshRepositories();
+
+        Chat.SelectRepository(repository);
+        var delivered = await Chat.SendAsync(current.ToPrompt());
+
+        if (delivered && Chat.CurrentSessionId is { } sessionId)
+        {
+            try
+            {
+                if (!await Tasks.MarkSentAsync(current.Id, sessionId))
+                {
+                    _taskError = "The task was sent but could no longer be marked as sent (it was deleted or already sent).";
+                }
+            }
+            catch (Exception ex)
+            {
+                _taskError = $"The task was sent but could not be marked as sent: {ex.Message}";
+            }
+        }
+    }
+
+    private async Task OpenTaskConversationAsync(RepositoryTask task)
+    {
+        _taskError = null;
+        var summary = _conversations.FirstOrDefault(c => c.Session.SessionId == task.SessionId);
+        if (summary is null)
+        {
+            try
+            {
+                await RefreshConversationsAsync();
+            }
+            catch (Exception ex)
+            {
+                _taskError = $"Failed to list conversations: {ex.Message}";
+                return;
+            }
+
+            summary = _conversations.FirstOrDefault(c => c.Session.SessionId == task.SessionId);
+        }
+
+        if (summary is null)
+        {
+            _taskError = "The conversation of this task was not found.";
+            return;
+        }
+
+        await OpenAsync(summary);
+    }
+
     private void AskMerge()
     {
         _mergeError = null;
@@ -468,6 +730,7 @@
 
         Chat.Changed += OnChatChanged;
         Ledger.Changed += OnLedgerChanged;
+        Tasks.Changed += OnLedgerChanged;
         _listedSessionId = Chat.CurrentSessionId;
         _wasBusy = Chat.IsBusy;
         RefreshRepositories();
@@ -639,6 +902,7 @@
         _isDisposed = true;
         Chat.Changed -= OnChatChanged;
         Ledger.Changed -= OnLedgerChanged;
+        Tasks.Changed -= OnLedgerChanged;
         _disposed.Cancel();
         _disposed.Dispose();
     }
