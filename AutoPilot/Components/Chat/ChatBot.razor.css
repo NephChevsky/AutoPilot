@@ -400,7 +400,7 @@
 .question {
     border-top: 1px solid #e3e3e3;
     background: #e7f1ff;
-    padding: 0.75rem 1rem 0;
+    padding: 0.75rem 1rem;
 }
 
 .question-text {
@@ -522,11 +522,6 @@
     gap: 0.5rem;
     padding: 0.75rem 1rem;
     border-top: 1px solid #e3e3e3;
-}
-
-.question .composer {
-    border-top: none;
-    padding: 0 0 0.75rem;
 }
 
 .composer input {
