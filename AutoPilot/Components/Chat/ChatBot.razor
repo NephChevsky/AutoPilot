@@ -11,7 +11,7 @@
 <aside class="conversations">
     <div class="conversations-header">
         <strong>Conversations</strong>
-        <button type="button" class="btn secondary" @onclick="ResetAsync" disabled="@(Chat.IsBusy || Chat.IsLoading)">New conversation</button>
+        <button type="button" class="btn secondary" @onclick="ResetAsync" disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">New conversation</button>
     </div>
     @if (_listError is not null)
     {
@@ -22,7 +22,7 @@
         {
             <li>
                 <button type="button" class="conversation @(conversation.SessionId == Chat.CurrentSessionId ? "active" : "")"
-                        disabled="@(Chat.IsBusy || Chat.IsLoading)" @onclick="() => OpenAsync(conversation.SessionId)">
+                        disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" @onclick="() => OpenAsync(conversation.SessionId)">
                     <span class="conversation-title">@(string.IsNullOrWhiteSpace(conversation.Summary) ? "Untitled conversation" : conversation.Summary)</span>
                     <small>@conversation.ModifiedTime.ToLocalTime().ToString("g")</small>
                     @if (Ledger.Get(conversation.SessionId) is { } saved)
@@ -61,7 +61,7 @@
             @if (Chat.CurrentBranch is { } branch)
             {
                 <div class="branch-name" title="Conversation branch">Branch: @branch</div>
-                <button type="button" class="btn secondary review-btn" @onclick="OpenDiffAsync" disabled="@(Chat.IsBusy || Chat.IsLoading)">Review changes</button>
+                <button type="button" class="btn secondary review-btn" @onclick="OpenDiffAsync" disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">Review changes</button>
             }
             <div>
                 This session:
@@ -96,10 +96,30 @@
                     }
                 </div>
                 <div class="diff-actions">
-                    <button type="button" class="btn secondary" @onclick="RefreshDiffAsync" disabled="@(_diffLoading || Chat.IsBusy || Chat.IsLoading)">Refresh</button>
-                    <button type="button" class="btn secondary" @onclick="CloseDiff">Close</button>
+                    <button type="button" class="btn secondary" @onclick="RefreshDiffAsync" disabled="@(_diffLoading || Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">Refresh</button>
+                    @if (Chat.CurrentBranch is not null)
+                    {
+                        <button type="button" class="btn" @onclick="AskMerge" disabled="@(_diffLoading || Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">Merge</button>
+                    }
+                    <button type="button" class="btn secondary" @onclick="CloseDiff" disabled="@Chat.IsMerging">Close</button>
                 </div>
             </div>
+            @if (_mergeConfirm && Chat.CurrentBranch is { } mergeBranch)
+            {
+                <div class="merge-confirm">
+                    <span>Merge <strong>@mergeBranch</strong> into the branch currently checked out in the working directory, push that branch to <strong>@Settings.Value.GitRemote</strong>, and delete the conversation's worktree and local branch?</span>
+                    <button type="button" class="btn" @onclick="ConfirmMergeAsync" disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)">Confirm merge</button>
+                    <button type="button" class="btn secondary" @onclick="CancelMerge" disabled="@Chat.IsMerging">Cancel</button>
+                </div>
+            }
+            @if (Chat.IsMerging)
+            {
+                <div class="entry activity working">Merging...</div>
+            }
+            @if (_mergeError is not null)
+            {
+                <div class="entry error">@_mergeError</div>
+            }
             <div class="diff-body">
                 @if (_diffLoading)
                 {
@@ -249,14 +269,14 @@
     }
 
     <form class="composer" @onsubmit="SendAsync">
-        <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..."         disabled="@(Chat.IsBusy || Chat.IsLoading)" />
+        <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@(Chat.IsBusy || Chat.IsLoading || Chat.IsMerging)" />
         @if (Chat.IsBusy)
         {
             <button type="button" class="btn danger" @onclick="Chat.AbortAsync">Stop</button>
         }
         else
         {
-                    <button type="submit" class="btn" disabled="@(Chat.IsLoading || string.IsNullOrWhiteSpace(_draft))">Send</button>
+                    <button type="submit" class="btn" disabled="@(Chat.IsLoading || Chat.IsMerging || string.IsNullOrWhiteSpace(_draft))">Send</button>
         }
     </form>
 </div>
@@ -280,10 +300,56 @@
     private string? _diffError;
     private string? _diffSessionId;
     private int _diffVersion;
+    private bool _mergeConfirm;
+    private string? _mergeError;
+
+    private void AskMerge()
+    {
+        _mergeError = null;
+        _mergeConfirm = true;
+    }
+
+    private void CancelMerge() => _mergeConfirm = false;
+
+    private async Task ConfirmMergeAsync()
+    {
+        _mergeConfirm = false;
+        _mergeError = null;
+        ConversationMergeResult? result;
+        try
+        {
+            result = await Chat.MergeCurrentAsync(_disposed.Token);
+        }
+        catch (OperationCanceledException) when (_isDisposed)
+        {
+            return;
+        }
+
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        if (result is not null)
+        {
+            if (result.Status is ConversationMergeStatus.Merged or ConversationMergeStatus.CleanupFailed)
+            {
+                ResetDiff();
+            }
+            else
+            {
+                _mergeError = result.Message;
+            }
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
 
     private void ResetDiff()
     {
         _diffVersion++;
+        _mergeConfirm = false;
+        _mergeError = null;
         _diffOpen = false;
         _diffLoading = false;
         _diff = null;
@@ -470,7 +536,7 @@
         }
 
         // Re-list when a conversation was created/opened or a run finished.
-        if (_diffOpen && Chat.CurrentSessionId != _diffSessionId)
+        if (_diffOpen && !Chat.IsMerging && Chat.CurrentSessionId != _diffSessionId)
         {
             ResetDiff();
         }

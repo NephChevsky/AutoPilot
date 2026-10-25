@@ -35,6 +35,9 @@ namespace AutoPilot.Services
         /// <summary>True while a persisted conversation is being opened; sends, resets and further loads are ignored.</summary>
         public bool IsLoading { get; private set; }
 
+        /// <summary>True while the conversation branch is being merged; sends, resets and loads are ignored.</summary>
+        public bool IsMerging { get; private set; }
+
         public UserInputRequest? PendingQuestion { get; private set; }
 
         /// <summary>Id of the open conversation; null until the first message of a new conversation is sent.</summary>
@@ -50,7 +53,7 @@ namespace AutoPilot.Services
 
         public async Task SendAsync(string prompt)
         {
-            if (string.IsNullOrWhiteSpace(prompt)             || IsBusy || IsLoading)
+            if (string.IsNullOrWhiteSpace(prompt) || IsBusy || IsLoading || IsMerging)
             {
                 return;
             }
@@ -113,7 +116,7 @@ namespace AutoPilot.Services
 
         public async Task ResetAsync()
         {
-            if (IsLoading)
+            if (IsLoading || IsMerging)
             {
                 return;
             }
@@ -136,6 +139,67 @@ namespace AutoPilot.Services
             }
 
             return worktrees.GetDiffAsync(sessionId, cancellationToken);
+        }
+
+        /// <summary>
+        /// Merges the current conversation's branch into the branch checked out in the working directory, pushes it and cleans up.
+        /// Returns null (no-op) when there is no conversation with a dedicated branch or a run, load or merge is in progress.
+        /// The conversation is reopened afterwards (in its worktree when the branch still exists, otherwise as a legacy conversation).
+        /// </summary>
+        public async Task<ConversationMergeResult?> MergeCurrentAsync(CancellationToken cancellationToken = default)
+        {
+            var sessionId = CurrentSessionId;
+            if (sessionId is null || CurrentBranch is null || IsBusy || IsLoading || IsMerging)
+            {
+                return null;
+            }
+
+            IsMerging = true;
+            ConversationMergeResult result;
+            try
+            {
+                await NotifyAsync();
+                await CloseSessionAsync();
+                try
+                {
+                    result = await worktrees.MergeAsync(sessionId, options.Value.GitRemote, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // Nothing was merged (cancellation is only honoured before the merge starts); reopen the conversation and propagate.
+                    try
+                    {
+                        await LoadConversationCoreAsync(sessionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Reopening conversation {SessionId} after a cancelled merge failed.", sessionId);
+                    }
+
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Merging conversation {SessionId} failed unexpectedly.", sessionId);
+                    result = new ConversationMergeResult(ConversationMergeStatus.Rejected, $"Merge failed: {ex.Message}");
+                }
+
+                await LoadConversationCoreAsync(sessionId);
+                var success = result.Status is ConversationMergeStatus.Merged or ConversationMergeStatus.CleanupFailed;
+                Add(new ChatEntry
+                {
+                    Kind = success ? ChatEntryKind.Activity : ChatEntryKind.Error,
+                    Author = "System",
+                    Text = result.Message,
+                });
+            }
+            finally
+            {
+                IsMerging = false;
+            }
+
+            await NotifyAsync();
+            return result;
         }
 
         public async ValueTask DisposeAsync()
@@ -189,11 +253,16 @@ namespace AutoPilot.Services
         /// <summary>Closes the current conversation and opens a persisted one, replaying its transcript. No-op while busy.</summary>
         public async Task LoadConversationAsync(string sessionId)
         {
-            if (string.IsNullOrWhiteSpace(sessionId) || IsBusy || IsLoading)
+            if (string.IsNullOrWhiteSpace(sessionId) || IsBusy || IsLoading || IsMerging)
             {
                 return;
             }
 
+            await LoadConversationCoreAsync(sessionId);
+        }
+
+        private async Task LoadConversationCoreAsync(string sessionId)
+        {
             IsLoading = true;
             CopilotSession? session = null;
             try

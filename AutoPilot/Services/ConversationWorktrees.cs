@@ -2,6 +2,12 @@ using System.Diagnostics;
 
 namespace AutoPilot.Services
 {
+    /// <summary>Outcome of <see cref="ConversationWorktrees.MergeAsync"/>.</summary>
+    public enum ConversationMergeStatus { Merged, CleanupFailed, PushFailed, Conflict, Rejected }
+
+    /// <summary>Result of merging a conversation branch; <paramref name="TargetBranch"/> and <paramref name="MergeCommit"/> are set once merged locally.</summary>
+    public sealed record ConversationMergeResult(ConversationMergeStatus Status, string Message, string? TargetBranch = null, string? MergeCommit = null);
+
     /// <summary>The dedicated git branch and worktree folder of one conversation.</summary>
     public sealed record ConversationWorkspace(string SessionId, string Directory, string Branch);
 
@@ -129,6 +135,170 @@ namespace AutoPilot.Services
                 _gate.Release();
             }
         }
+
+        /// <summary>
+        /// Merges the conversation branch (<c>--no-ff</c>) into the branch checked out in the repository directory, pushes that
+        /// branch to <paramref name="remote"/> (never forced) and deletes the conversation's worktree and local branch.
+        /// Git failures and invalid input are reported through the result; only cancellation throws.
+        /// </summary>
+        public async Task<ConversationMergeResult> MergeAsync(string sessionId, string remote, CancellationToken cancellationToken)
+        {
+            if (!IsValidId(sessionId))
+            {
+                return Rejected("The conversation id is invalid; nothing was merged.");
+            }
+
+            if (string.IsNullOrEmpty(remote) || remote[0] == '-' || remote.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+            {
+                return Rejected("The configured git remote name is invalid (it must be non-empty, must not start with '-' and must not contain whitespace or control characters); nothing was merged.");
+            }
+
+            var branch = GetBranchName(sessionId);
+            var worktree = GetWorktreePath(sessionId);
+
+            await _gate.WaitAsync(cancellationToken);
+            try
+            {
+                if (!await BranchExistsCoreAsync(branch, cancellationToken))
+                {
+                    return Rejected($"Branch '{branch}' does not exist; nothing was merged.");
+                }
+
+                var remoteUrl = await RunGitAsync(["remote", "get-url", remote], cancellationToken);
+                if (remoteUrl.TimedOut || remoteUrl.ExitCode != 0)
+                {
+                    return Rejected($"Git remote '{remote}' is not configured; nothing was merged. {remoteUrl.StdErr.Trim()}");
+                }
+
+                var head = await RunGitAsync(["symbolic-ref", "--short", "HEAD"], cancellationToken);
+                var target = head.StdOut.Trim();
+                if (head.TimedOut || head.ExitCode != 0 || target.Length == 0)
+                {
+                    return Rejected("The main working directory is on a detached HEAD; check out a branch first. Nothing was merged.");
+                }
+
+                if (string.Equals(target, branch, StringComparison.Ordinal))
+                {
+                    return Rejected($"The main working directory has the conversation branch '{branch}' checked out; nothing was merged.");
+                }
+
+                var mergeHead = await RunGitAsync(["rev-parse", "-q", "--verify", "MERGE_HEAD"], cancellationToken);
+                if (!mergeHead.TimedOut && mergeHead.ExitCode == 0)
+                {
+                    return Rejected("A merge is already in progress in the main working directory; finish or abort it first. Nothing was merged.");
+                }
+
+                var mainStatus = await RunGitAsync(["status", "--porcelain", "--untracked-files=no"], cancellationToken);
+                if (mainStatus.TimedOut || mainStatus.ExitCode != 0)
+                {
+                    return Rejected($"Could not read the status of the main working directory: {mainStatus.StdErr.Trim()}");
+                }
+
+                if (mainStatus.StdOut.Trim().Length > 0)
+                {
+                    return Rejected($"The main working directory has uncommitted changes to tracked files; commit or stash them first. Nothing was merged.");
+                }
+
+                if (Directory.Exists(worktree))
+                {
+                    var worktreeStatus = await RunGitAsync(["status", "--porcelain"], cancellationToken, worktree);
+                    if (worktreeStatus.TimedOut || worktreeStatus.ExitCode != 0)
+                    {
+                        return Rejected($"Could not read the status of the conversation worktree: {worktreeStatus.StdErr.Trim()}");
+                    }
+
+                    if (worktreeStatus.StdOut.Trim().Length > 0)
+                    {
+                        return Rejected("The conversation worktree has uncommitted or untracked changes; commit the changes first. Nothing was merged.");
+                    }
+                }
+
+                // Cancellation is honoured only up to here; from now on the repository is mutated and every git
+                // command must run to completion (each still has GitTimeout) so it is never left mid-merge.
+                cancellationToken.ThrowIfCancellationRequested();
+                var none = CancellationToken.None;
+
+                var merge = await RunGitAsync(["merge", "--no-ff", "--no-edit", branch], none);
+                if (merge.TimedOut || merge.ExitCode != 0)
+                {
+                    var conflicts = await RunGitAsync(["diff", "--name-only", "--diff-filter=U"], none);
+                    var files = conflicts.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    var abort = await RunGitAsync(["merge", "--abort"], none);
+                    var stillMerging = false;
+                    if (abort.TimedOut || abort.ExitCode != 0)
+                    {
+                        // Aborting fails harmlessly when git refused to start the merge at all; only a lingering MERGE_HEAD is a problem.
+                        var lingering = await RunGitAsync(["rev-parse", "-q", "--verify", "MERGE_HEAD"], none);
+                        stillMerging = lingering.TimedOut || lingering.ExitCode == 0;
+                    }
+
+                    logger?.LogWarning("Merging {Branch} into {Target} failed ({Conflicts} conflicting files, abort failed: {StillMerging}).", branch, target, files.Length, stillMerging);
+                    var status = files.Length > 0 ? ConversationMergeStatus.Conflict : ConversationMergeStatus.Rejected;
+                    if (stillMerging)
+                    {
+                        return new ConversationMergeResult(status,
+                            $"Merging '{branch}' into '{target}' failed and 'git merge --abort' did not succeed ({(abort.TimedOut ? "timed out" : abort.StdErr.Trim())}); the main working directory may still be mid-merge. Run 'git merge --abort' manually in it. {(files.Length > 0 ? "Conflicting files: " + string.Join(", ", files) : string.Empty)}".TrimEnd(), target);
+                    }
+
+                    if (files.Length > 0)
+                    {
+                        return new ConversationMergeResult(ConversationMergeStatus.Conflict,
+                            $"Merging '{branch}' into '{target}' hit conflicts and was aborted; nothing changed. Conflicting files: {string.Join(", ", files)}", target);
+                    }
+
+                    var detail = (merge.StdErr.Trim() + " " + merge.StdOut.Trim()).Trim();
+                    return Rejected($"Merging '{branch}' into '{target}' failed; nothing changed. {(merge.TimedOut ? "Timed out." : detail)}", target);
+                }
+
+                var commit = (await RunGitAsync(["rev-parse", "HEAD"], none)).StdOut.Trim();
+
+                var push = await RunGitAsync(["push", remote, $"HEAD:refs/heads/{target}"], none);
+                if (push.TimedOut || push.ExitCode != 0)
+                {
+                    logger?.LogWarning("Pushing {Target} to {Remote} failed after merging {Branch}.", target, remote, branch);
+                    return new ConversationMergeResult(ConversationMergeStatus.PushFailed,
+                        $"Merged '{branch}' into '{target}' (commit {commit}) but pushing to '{remote}' failed; the merge, branch and worktree were kept and you can retry. {(push.TimedOut ? "Timed out." : push.StdErr.Trim())}",
+                        target, commit);
+                }
+
+                try
+                {
+                    if (await IsRegisteredWorktreeAsync(worktree, none))
+                    {
+                        await GitAsync(["worktree", "remove", "--force", worktree], none);
+                    }
+
+                    await GitAsync(["worktree", "prune"], none);
+                    await GitAsync(["branch", "-d", branch], none);
+                    if (Directory.Exists(worktree))
+                    {
+                        throw new IOException($"The worktree folder '{worktree}' still exists.");
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+                {
+                    logger?.LogWarning(ex, "Cleanup of {Branch} failed after a successful merge and push.", branch);
+                    return new ConversationMergeResult(ConversationMergeStatus.CleanupFailed,
+                        $"Merged '{branch}' into '{target}' (commit {commit}) and pushed to '{remote}', but cleanup failed: {ex.Message}", target, commit);
+                }
+
+                logger?.LogInformation("Merged {Branch} into {Target} ({Commit}), pushed to {Remote} and cleaned up.", branch, target, commit, remote);
+                return new ConversationMergeResult(ConversationMergeStatus.Merged,
+                    $"Merged '{branch}' into '{target}' (commit {commit}), pushed to '{remote}' and deleted the worktree and local branch.", target, commit);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+            {
+                logger?.LogError(ex, "Merging {Branch} failed.", branch);
+                return Rejected($"Merge failed: {ex.Message}");
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        private static ConversationMergeResult Rejected(string message, string? target = null) =>
+            new(ConversationMergeStatus.Rejected, message, target);
 
         /// <summary>Writes the worktree's full content to a tree object using a temporary copy of its index.</summary>
         private async Task<string> SnapshotWorktreeAsync(string worktree, CancellationToken cancellationToken)
