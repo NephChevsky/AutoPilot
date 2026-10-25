@@ -124,7 +124,7 @@
                     <small>@conversation.ModifiedTime.ToLocalTime().ToString("g")</small>
                     @if (Ledger.Get(conversation.SessionId) is { } saved)
                     {
-                        <small class="conversation-cost">@FormatPremium(saved.PremiumRequests) premium requests · @FormatCredits(saved.AiCredits) AI credits</small>
+                        <small class="conversation-cost">@FormatCredits(saved.AiCredits) AI credits</small>
                     }
                     else
                     {
@@ -168,7 +168,7 @@
                 This session:
                 @if (Chat.CurrentCost is { } sessionCost)
                 {
-                    @($"{FormatPremium(sessionCost.PremiumRequests)} premium requests · {FormatCredits(sessionCost.AiCredits)} AI credits")
+                    @($"{FormatCredits(sessionCost.AiCredits)} AI credits")
                 }
                 else
                 {
@@ -176,7 +176,7 @@
                 }
             </div>
             @{ var totals = Ledger.GetTotals(); }
-            <div>All sessions: @FormatPremium(totals.PremiumRequests) premium requests · @FormatCredits(totals.AiCredits) AI credits (@totals.SessionCount sessions)</div>
+            <div>All sessions: @FormatCredits(totals.AiCredits) AI credits (@totals.SessionCount sessions)</div>
             <details class="agent-costs">
                 <summary>Cost by agent</summary>
                 @{ var agentRows = BuildAgentCostRows(); }
@@ -952,15 +952,12 @@
                 return new AgentCostRow(name, label, current, total);
             })
             .OrderByDescending(r => r.Total?.AiCredits ?? 0)
-            .ThenByDescending(r => r.Total?.PremiumCost ?? 0)
             .ThenBy(r => r.Key, StringComparer.Ordinal)
             .ToList();
     }
 
     private static string FormatAgentFigures(AgentCost? agent) =>
-        agent is null ? "—" : $"{FormatPremium(agent.PremiumCost)} premium requests · {FormatCredits(agent.AiCredits)} AI credits";
-
-    private static string FormatPremium(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        agent is null ? "—" : $"{FormatCredits(agent.AiCredits)} AI credits";
 
     private static string FormatCredits(double value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 

@@ -8,9 +8,6 @@ namespace AutoPilot.Services
         /// <summary>Number of model requests.</summary>
         public double Requests { get; set; }
 
-        /// <summary>Premium request cost.</summary>
-        public double PremiumCost { get; set; }
-
         /// <summary>Consumed AI credits in nano AIU (1e-9 AI credit).</summary>
         public double NanoAiu { get; set; }
 
@@ -49,8 +46,6 @@ namespace AutoPilot.Services
 
         public DateTimeOffset LastUpdated { get; set; }
 
-        public double PremiumRequests { get; set; }
-
         public double NanoAiu { get; set; }
 
         public long InputTokens { get; set; }
@@ -76,7 +71,6 @@ namespace AutoPilot.Services
     /// <summary>Sums across all recorded sessions.</summary>
     public sealed record CostTotals(
         int SessionCount,
-        double PremiumRequests,
         double NanoAiu,
         long InputTokens,
         long OutputTokens,
@@ -91,8 +85,6 @@ namespace AutoPilot.Services
     public sealed class UsageSnapshot
     {
         public static UsageSnapshot Zero => new();
-
-        public double PremiumRequests { get; set; }
 
         public double NanoAiu { get; set; }
 

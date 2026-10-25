@@ -21,9 +21,9 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
 
     private string NewPath() => Path.Combine(_dir, "usage", "session-costs.json");
 
-    private static AgentCost Agent(string? name, double req, double prem, double nano, long i, long o, long cr, long cw, long r) => new()
+    private static AgentCost Agent(string? name, double req, double nano, long i, long o, long cr, long cw, long r) => new()
     {
-        DisplayName = name, Requests = req, PremiumCost = prem, NanoAiu = nano,
+            DisplayName = name, Requests = req, NanoAiu = nano,
         InputTokens = i, OutputTokens = o, CacheReadTokens = cr, CacheWriteTokens = cw, ReasoningTokens = r,
     };
 
@@ -39,14 +39,13 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     [Fact]
     public void TotalByAgent_SumsAllFieldsAcrossSessions()
     {
-        var a = Session("a", 0, ("coder", Agent("Coder", 1, 0.5, 1e9, 10, 20, 30, 40, 50)), ("rev", Agent(null, 2, 1, 2e9, 1, 1, 1, 1, 1)));
-        var b = Session("b", 1, ("coder", Agent("Coder", 3, 1.5, 3e9, 5, 6, 7, 8, 9)));
+        var a = Session("a", 0, ("coder", Agent("Coder", 1, 1e9, 10, 20, 30, 40, 50)), ("rev", Agent(null, 2, 2e9, 1, 1, 1, 1, 1)));
+        var b = Session("b", 1, ("coder", Agent("Coder", 3, 3e9, 5, 6, 7, 8, 9)));
         var totals = UsageAccumulator.TotalByAgent([a, b]);
 
         Assert.Equal(2, totals.Count);
         var c = totals["coder"];
         Assert.Equal(4, c.Requests);
-        Assert.Equal(2, c.PremiumCost);
         Assert.Equal(4e9, c.NanoAiu);
         Assert.Equal(4.0, c.AiCredits, 6);
         Assert.Equal(15, c.InputTokens);
@@ -69,7 +68,7 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
         var nullAgents = new SessionCost { SessionId = "n" };
         nullAgents.Agents = null!;
         var empty = new SessionCost { SessionId = "e" };
-        var real = Session("r", 0, ("x", Agent("X", 1, 1, 1e9, 1, 1, 1, 1, 1)));
+        var real = Session("r", 0, ("x", Agent("X", 1, 1e9, 1, 1, 1, 1, 1)));
 
         var totals = UsageAccumulator.TotalByAgent([nullAgents, empty, real]);
 
@@ -80,9 +79,9 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     [Fact]
     public void TotalByAgent_DisplayName_FromMostRecentSessionHavingOne()
     {
-        var oldest = Session("o", -5, ("x", Agent("Old", 1, 0, 0, 0, 0, 0, 0, 0)));
-        var newest = Session("n", 5, ("x", Agent("New", 1, 0, 0, 0, 0, 0, 0, 0)));
-        var newestNoName = Session("nn", 10, ("x", Agent(null, 1, 0, 0, 0, 0, 0, 0, 0)));
+        var oldest = Session("o", -5, ("x", Agent("Old", 1, 0, 0, 0, 0, 0, 0)));
+        var newest = Session("n", 5, ("x", Agent("New", 1, 0, 0, 0, 0, 0, 0)));
+        var newestNoName = Session("nn", 10, ("x", Agent(null, 1, 0, 0, 0, 0, 0, 0)));
 
         // Order of enumeration must not matter.
         Assert.Equal("New", UsageAccumulator.TotalByAgent([oldest, newest, newestNoName])["x"].DisplayName);
@@ -93,14 +92,14 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     [Fact]
     public void TotalByAgent_NoDisplayNameAnywhere_IsNull()
     {
-        var s = Session("s", 0, ("x", Agent(null, 1, 0, 0, 0, 0, 0, 0, 0)));
+        var s = Session("s", 0, ("x", Agent(null, 1, 0, 0, 0, 0, 0, 0)));
         Assert.Null(UsageAccumulator.TotalByAgent([s])["x"].DisplayName);
     }
 
     [Fact]
     public void TotalByAgent_KeysAreOrdinalCaseSensitive()
     {
-        var s = Session("s", 0, ("Coder", Agent(null, 1, 0, 0, 0, 0, 0, 0, 0)), ("coder", Agent(null, 2, 0, 0, 0, 0, 0, 0, 0)));
+        var s = Session("s", 0, ("Coder", Agent(null, 1, 0, 0, 0, 0, 0, 0)), ("coder", Agent(null, 2, 0, 0, 0, 0, 0, 0)));
         var totals = UsageAccumulator.TotalByAgent([s]);
         Assert.Equal(2, totals.Count);
         Assert.Equal(1, totals["Coder"].Requests);
@@ -111,8 +110,8 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     [Fact]
     public void TotalByAgent_DoesNotMutateInputs_AndIsRepeatable()
     {
-        var a = Session("a", 0, ("x", Agent("X", 1, 1, 1e9, 1, 2, 3, 4, 5)));
-        var b = Session("b", 1, ("x", Agent("X2", 1, 1, 1e9, 1, 2, 3, 4, 5)));
+        var a = Session("a", 0, ("x", Agent("X", 1, 1e9, 1, 2, 3, 4, 5)));
+        var b = Session("b", 1, ("x", Agent("X2", 1, 1e9, 1, 2, 3, 4, 5)));
         var first = UsageAccumulator.TotalByAgent([a, b]);
         var second = UsageAccumulator.TotalByAgent([a, b]);
 
@@ -149,8 +148,8 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     {
         var path = NewPath();
         var ledger = new UsageLedger(path, new NullLog());
-        await ledger.RecordAsync(Session("a", 0, ("coder", Agent("Coder", 1, 0.5, 1e9, 10, 20, 30, 40, 50))));
-        await ledger.RecordAsync(Session("b", 1, ("coder", Agent("Coder", 2, 1, 2e9, 1, 1, 1, 1, 1)), ("rev", Agent("Reviewer", 1, 1, 5e8, 0, 0, 0, 0, 0))));
+        await ledger.RecordAsync(Session("a", 0, ("coder", Agent("Coder", 1, 1e9, 10, 20, 30, 40, 50))));
+        await ledger.RecordAsync(Session("b", 1, ("coder", Agent("Coder", 2, 2e9, 1, 1, 1, 1, 1)), ("rev", Agent("Reviewer", 1, 5e8, 0, 0, 0, 0, 0))));
         await ledger.RecordAsync(new SessionCost { SessionId = "c" });
 
         foreach (var l in new[] { ledger, new UsageLedger(path, new NullLog()) })
@@ -158,7 +157,6 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
             var totals = l.GetAgentTotals();
             Assert.Equal(2, totals.Count);
             Assert.Equal(3, totals["coder"].Requests);
-            Assert.Equal(1.5, totals["coder"].PremiumCost);
             Assert.Equal(3.0, totals["coder"].AiCredits, 6);
             Assert.Equal(11, totals["coder"].InputTokens);
             Assert.Equal(51, totals["coder"].ReasoningTokens);
@@ -171,8 +169,8 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     public async Task Ledger_GetAgentTotals_ReRecordingSameSession_DoesNotDoubleCount()
     {
         var ledger = new UsageLedger(NewPath(), new NullLog());
-        await ledger.RecordAsync(Session("a", 0, ("x", Agent("X", 1, 1, 1e9, 1, 1, 1, 1, 1))));
-        await ledger.RecordAsync(Session("a", 1, ("x", Agent("X", 4, 2, 3e9, 1, 1, 1, 1, 1))));
+        await ledger.RecordAsync(Session("a", 0, ("x", Agent("X", 1, 1e9, 1, 1, 1, 1, 1))));
+        await ledger.RecordAsync(Session("a", 1, ("x", Agent("X", 4, 3e9, 1, 1, 1, 1, 1))));
         var t = ledger.GetAgentTotals()["x"];
         Assert.Equal(4, t.Requests);
         Assert.Equal(3.0, t.AiCredits, 6);
@@ -183,13 +181,11 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
     public async Task ExistingTotals_UnaffectedByAgentData()
     {
         var ledger = new UsageLedger(NewPath(), new NullLog());
-        var s = Session("a", 0, ("x", Agent("X", 1, 1, 1e9, 1, 1, 1, 1, 1)));
-        s.PremiumRequests = 3;
+        var s = Session("a", 0, ("x", Agent("X", 1, 1e9, 1, 1, 1, 1, 1)));
         s.NanoAiu = 4e9;
         await ledger.RecordAsync(s);
         var totals = ledger.GetTotals();
         Assert.Equal(1, totals.SessionCount);
-        Assert.Equal(3, totals.PremiumRequests);
         Assert.Equal(4.0, totals.AiCredits, 6);
         Assert.Single(ledger.GetAll());
     }
