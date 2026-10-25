@@ -15,13 +15,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="AutoPilot.Tests\**" />
-    <Content Remove="AutoPilot.Tests\**" />
-    <None Remove="AutoPilot.Tests\**" />
-    <EmbeddedResource Remove="AutoPilot.Tests\**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <None Update="Agents\**\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

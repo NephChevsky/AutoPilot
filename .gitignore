@@ -483,3 +483,4 @@ $RECYCLE.BIN/
 
 # Copilot runtime data (sessions, config, state)
 /Copilot/
+/AutoPilot/Copilot/
