@@ -1,9 +1,38 @@
 @using AutoPilot.Services
+@using GitHub.Copilot
 @using Microsoft.Extensions.Options
 @implements IDisposable
 @inject AgentChatSession Chat
 @inject AgentCatalog Catalog
 @inject IOptions<AutoPilotSettings> Settings
+
+<div class="chat-layout">
+<aside class="conversations">
+    <div class="conversations-header">
+        <strong>Conversations</strong>
+        <button type="button" class="btn secondary" @onclick="ResetAsync" disabled="@(Chat.IsBusy || Chat.IsLoading)">New conversation</button>
+    </div>
+    @if (_listError is not null)
+    {
+        <div class="entry error">@_listError</div>
+    }
+    <ul class="conversation-list">
+        @foreach (var conversation in _conversations)
+        {
+            <li>
+                <button type="button" class="conversation @(conversation.SessionId == Chat.CurrentSessionId ? "active" : "")"
+                        disabled="@(Chat.IsBusy || Chat.IsLoading)" @onclick="() => OpenAsync(conversation.SessionId)">
+                    <span class="conversation-title">@(string.IsNullOrWhiteSpace(conversation.Summary) ? "Untitled conversation" : conversation.Summary)</span>
+                    <small>@conversation.ModifiedTime.ToLocalTime().ToString("g")</small>
+                </button>
+            </li>
+        }
+        @if (_conversations.Count == 0 && _listError is null)
+        {
+            <li class="conversation-empty">No previous conversations</li>
+        }
+    </ul>
+</aside>
 
 <div class="chatbot">
     <header class="chat-header">
@@ -19,7 +48,6 @@
                 </span>
             }
         </div>
-        <button type="button" class="btn secondary" @onclick="ResetAsync" disabled="@Chat.IsBusy">New conversation</button>
     </header>
 
     <div class="messages">
@@ -58,6 +86,11 @@
                 }
             }
 
+            @if (Chat.IsLoading)
+            {
+                <div class="entry activity working">Loading conversation...</div>
+            }
+
             @if (Chat.IsBusy && Chat.PendingQuestion is null)
             {
                 <div class="entry activity working">Working...</div>
@@ -89,21 +122,29 @@
     }
 
     <form class="composer" @onsubmit="SendAsync">
-        <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..." disabled="@Chat.IsBusy" />
+        <input @bind="_draft" @bind:event="oninput" placeholder="Describe the feature to build..."         disabled="@(Chat.IsBusy || Chat.IsLoading)" />
         @if (Chat.IsBusy)
         {
             <button type="button" class="btn danger" @onclick="Chat.AbortAsync">Stop</button>
         }
         else
         {
-            <button type="submit" class="btn" disabled="@string.IsNullOrWhiteSpace(_draft)">Send</button>
+                    <button type="submit" class="btn" disabled="@(Chat.IsLoading || string.IsNullOrWhiteSpace(_draft))">Send</button>
         }
     </form>
+</div>
 </div>
 
 @code {
     private IReadOnlyList<AgentDefinition> _agents = [];
     private string? _loadError;
+    private string? _listError;
+    private IReadOnlyList<SessionMetadata> _conversations = [];
+    private string? _listedSessionId;
+    private bool _wasBusy;
+    private bool _isDisposed;
+    private int _refreshVersion;
+    private CancellationTokenSource _disposed = new();
     private string _draft = "";
     private string _answer = "";
 
@@ -119,6 +160,52 @@
         }
 
         Chat.Changed += OnChatChanged;
+        _listedSessionId = Chat.CurrentSessionId;
+        _wasBusy = Chat.IsBusy;
+        _ = RefreshConversationsAsync();
+    }
+
+    private async Task RefreshConversationsAsync()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        var version = ++_refreshVersion;
+        try
+        {
+            var list = await Chat.ListConversationsAsync(_disposed.Token);
+            if (_isDisposed || version != _refreshVersion)
+            {
+                return;
+            }
+
+            _conversations = list;
+            _listError = null;
+        }
+        catch (OperationCanceledException) when (_isDisposed)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (_isDisposed || version != _refreshVersion)
+            {
+                return;
+            }
+
+            _listError = $"Failed to list conversations: {ex.Message}";
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenAsync(string sessionId)
+    {
+        _draft = "";
+        _answer = "";
+        await Chat.LoadConversationAsync(sessionId);
     }
 
     private async Task SendAsync()
@@ -159,7 +246,30 @@
         null => "running",
     };
 
-    private Task OnChatChanged() => InvokeAsync(StateHasChanged);
+    private Task OnChatChanged()
+    {
+        if (_isDisposed)
+        {
+            return Task.CompletedTask;
+        }
 
-    public void Dispose() => Chat.Changed -= OnChatChanged;
+        // Re-list when a conversation was created/opened or a run finished.
+        var refresh = Chat.CurrentSessionId != _listedSessionId || (_wasBusy && !Chat.IsBusy);
+        _listedSessionId = Chat.CurrentSessionId;
+        _wasBusy = Chat.IsBusy;
+        if (refresh)
+        {
+            _ = RefreshConversationsAsync();
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+        Chat.Changed -= OnChatChanged;
+        _disposed.Cancel();
+        _disposed.Dispose();
+    }
 }

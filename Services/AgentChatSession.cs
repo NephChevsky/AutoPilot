@@ -13,34 +13,29 @@ namespace AutoPilot.Services
         IOptions<AutoPilotSettings> options,
         ILogger<AgentChatSession> logger) : IAsyncDisposable
     {
-        private const string TaskToolName = "task";
-
         private readonly Lock _gate = new();
-        private readonly List<ChatEntry> _entries = [];
-        private readonly Dictionary<string, string> _subagentByToolCallId = [];
-        private readonly Dictionary<string, string> _subagentByAgentId = [];
+        private readonly ChatTranscript _transcript = new();
         private CopilotSession? _session;
         private IDisposable? _subscription;
         private TaskCompletionSource<UserInputResponse>? _pendingAnswer;
-        private string _orchestratorName = "Orchestrator";
 
         public event Func<Task>? Changed;
 
         public bool IsBusy { get; private set; }
 
+        /// <summary>True while a persisted conversation is being opened; sends, resets and further loads are ignored.</summary>
+        public bool IsLoading { get; private set; }
+
         public UserInputRequest? PendingQuestion { get; private set; }
 
-        public IReadOnlyList<ChatEntry> GetEntries()
-        {
-            lock (_gate)
-            {
-                return [.. _entries];
-            }
-        }
+        /// <summary>Id of the open conversation; null until the first message of a new conversation is sent.</summary>
+        public string? CurrentSessionId { get; private set; }
+
+        public IReadOnlyList<ChatEntry> GetEntries() => _transcript.GetEntries();
 
         public async Task SendAsync(string prompt)
         {
-            if (string.IsNullOrWhiteSpace(prompt) || IsBusy)
+            if (string.IsNullOrWhiteSpace(prompt)             || IsBusy || IsLoading)
             {
                 return;
             }
@@ -51,7 +46,7 @@ namespace AutoPilot.Services
 
             try
             {
-                _session ??= await CreateSessionAsync();
+                _session ??= await CreateSessionAsync(resumeSessionId: null);
                 await _session.SendAsync(new MessageOptions { Prompt = prompt.Trim() });
             }
             catch (Exception ex)
@@ -98,14 +93,14 @@ namespace AutoPilot.Services
 
         public async Task ResetAsync()
         {
-            await CloseSessionAsync();
-            lock (_gate)
+            if (IsLoading)
             {
-                _entries.Clear();
-                _subagentByToolCallId.Clear();
-                _subagentByAgentId.Clear();
+                return;
             }
 
+            await CloseSessionAsync();
+            _transcript.Clear();
+            CurrentSessionId = null;
             IsBusy = false;
             await NotifyAsync();
         }
@@ -116,47 +111,132 @@ namespace AutoPilot.Services
             await CloseSessionAsync();
         }
 
-        private async Task<CopilotSession> CreateSessionAsync()
+        /// <summary>Lists previous conversations of the configured working directory, newest first.</summary>
+        public async Task<IReadOnlyList<SessionMetadata>> ListConversationsAsync(CancellationToken cancellationToken = default)
+        {
+            var workingDirectory = options.Value.ResolveWorkingDirectory();
+            var sessions = await client.ListSessionsAsync(new SessionListFilter { WorkingDirectory = workingDirectory }, cancellationToken);
+            var expected = NormalizePath(workingDirectory);
+            return [.. sessions
+                .Where(s => s.Context?.WorkingDirectory is not { } dir || string.Equals(NormalizePath(dir), expected, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(s => s.ModifiedTime)];
+        }
+
+        /// <summary>Closes the current conversation and opens a persisted one, replaying its transcript. No-op while busy.</summary>
+        public async Task LoadConversationAsync(string sessionId)
+        {
+            if (string.IsNullOrWhiteSpace(sessionId) || IsBusy || IsLoading)
+            {
+                return;
+            }
+
+            IsLoading = true;
+            CopilotSession? session = null;
+            try
+            {
+                await NotifyAsync();
+                await CloseSessionAsync();
+                _transcript.Clear();
+                CurrentSessionId = null;
+
+                session = await CreateSessionAsync(sessionId);
+                var events = await session.GetEventsAsync(CancellationToken.None);
+                _transcript.Replay(events);
+                _session = session;
+                _subscription = session.On<SessionEvent>(OnSessionEvent);
+                CurrentSessionId = session.SessionId;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to load conversation {SessionId}.", sessionId);
+                if (session is not null && !ReferenceEquals(session, _session))
+                {
+                    try
+                    {
+                        await session.DisposeAsync();
+                    }
+                    catch (Exception disposeEx)
+                    {
+                        logger.LogWarning(disposeEx, "Failed to dispose the resumed Copilot session.");
+                    }
+                }
+
+                await CloseSessionAsync();
+                CurrentSessionId = null;
+                Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = $"Failed to load conversation: {ex.Message}" });
+            }
+            finally
+            {
+                IsLoading = false;
+            }
+
+            await NotifyAsync();
+        }
+
+        private static string NormalizePath(string path) =>
+            Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        /// <summary>Creates a new session, or resumes <paramref name="resumeSessionId"/>, with identical agents, tools and handlers.</summary>
+        private async Task<CopilotSession> CreateSessionAsync(string? resumeSessionId)
         {
             var settings = options.Value;
             var agents = catalog.LoadAgents();
             var orchestrator = agents.FirstOrDefault(a => string.Equals(a.Name, settings.OrchestratorAgent, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException($"Orchestrator agent '{settings.OrchestratorAgent}' was not found in '{catalog.AgentsDirectory}'.");
-            _orchestratorName = orchestrator.DisplayName;
+            _transcript.OrchestratorName = orchestrator.DisplayName;
 
             var workingDirectory = settings.ResolveWorkingDirectory();
             var tools = new WorkspaceTools(workingDirectory, settings.VerificationCommands, TimeSpan.FromSeconds(settings.VerificationTimeoutSeconds));
             await tools.CaptureBaselineAsync(CancellationToken.None);
+
+            var customAgents = agents.Select(a => a.ToCustomAgentConfig()).ToList();
+            var hooks = new SessionHooks
+            {
+                OnSubagentStart = (input, _) =>
+                {
+                    if (input.AgentId is not null)
+                    {
+                        _transcript.RegisterSubagent(input.AgentId, string.IsNullOrEmpty(input.AgentDisplayName) ? input.AgentName : input.AgentDisplayName);
+                    }
+
+                    return Task.FromResult<SubagentStartHookOutput?>(null);
+                },
+            };
+
+            if (resumeSessionId is not null)
+            {
+                return await client.ResumeSessionAsync(resumeSessionId, new ResumeSessionConfig
+                {
+                    Model = orchestrator.Model,
+                    ReasoningEffort = orchestrator.ReasoningEffort,
+                    WorkingDirectory = workingDirectory,
+                    CustomAgents = customAgents,
+                    Agent = orchestrator.Name,
+                    Tools = tools.CreateTools(),
+                    Streaming = true,
+                    SuppressResumeEvent = true,
+                    OnPermissionRequest = PermissionHandler.ApproveAll,
+                    OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
+                    Hooks = hooks,
+                });
+            }
 
             var session = await client.CreateSessionAsync(new SessionConfig
             {
                 Model = orchestrator.Model,
                 ReasoningEffort = orchestrator.ReasoningEffort,
                 WorkingDirectory = workingDirectory,
-                CustomAgents = [.. agents.Select(a => a.ToCustomAgentConfig())],
+                CustomAgents = customAgents,
                 Agent = orchestrator.Name,
                 Tools = tools.CreateTools(),
                 Streaming = true,
                 OnPermissionRequest = PermissionHandler.ApproveAll,
                 OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
-                Hooks = new SessionHooks
-                {
-                    OnSubagentStart = (input, _) =>
-                    {
-                        if (input.AgentId is not null)
-                        {
-                            lock (_gate)
-                            {
-                                _subagentByAgentId[input.AgentId] = string.IsNullOrEmpty(input.AgentDisplayName) ? input.AgentName : input.AgentDisplayName;
-                            }
-                        }
-
-                        return Task.FromResult<SubagentStartHookOutput?>(null);
-                    },
-                },
+                Hooks = hooks,
             });
 
             _subscription = session.On<SessionEvent>(OnSessionEvent);
+            CurrentSessionId = session.SessionId;
             return session;
         }
 
@@ -170,144 +250,26 @@ namespace AutoPilot.Services
                 PendingQuestion = request;
             }
 
-            Add(new ChatEntry { Kind = ChatEntryKind.Assistant, Author = _orchestratorName, Text = request.Question });
+            Add(new ChatEntry { Kind = ChatEntryKind.Assistant, Author = _transcript.OrchestratorName, Text = request.Question });
             await NotifyAsync();
             return await pending.Task;
         }
 
         private void OnSessionEvent(SessionEvent sessionEvent)
         {
-            switch (sessionEvent)
+            if (sessionEvent is SessionIdleEvent)
             {
-                case AssistantMessageDeltaEvent delta:
-                    UpsertMessage(delta.Data.MessageId, delta.AgentId, delta.Data.DeltaContent, append: true);
-                    break;
-
-                case AssistantMessageEvent message:
-                    UpsertMessage(message.Data.MessageId, message.AgentId, message.Data.Content, append: false);
-                    break;
-
-                case ToolExecutionStartEvent toolStart when toolStart.Data.ToolName != TaskToolName:
-                    Add(new ChatEntry
-                    {
-                        Kind = ChatEntryKind.Tool,
-                        Key = toolStart.Data.ToolCallId,
-                        Author = ResolveAgent(toolStart.AgentId),
-                        IsSubagent = toolStart.AgentId is not null,
-                        Text = toolStart.Data.ToolName,
-                    });
-                    break;
-
-                case ToolExecutionCompleteEvent toolComplete:
-                    lock (_gate)
-                    {
-                        var entry = _entries.FindLast(e => e.Kind == ChatEntryKind.Tool && e.Key == toolComplete.Data.ToolCallId);
-                        if (entry is not null)
-                        {
-                            entry.Succeeded = toolComplete.Data.Success;
-                        }
-                    }
-
-                    break;
-
-                case SubagentStartedEvent started:
-                    var agentName = string.IsNullOrEmpty(started.Data.AgentDisplayName) ? started.Data.AgentName : started.Data.AgentDisplayName;
-                    lock (_gate)
-                    {
-                        _subagentByToolCallId[started.Data.ToolCallId] = agentName;
-                    }
-
-                    Add(new ChatEntry { Kind = ChatEntryKind.Activity, Author = _orchestratorName, Text = $"{_orchestratorName} delegated to {agentName}" });
-                    break;
-
-                case SubagentCompletedEvent completed:
-                    Add(new ChatEntry { Kind = ChatEntryKind.Activity, Author = _orchestratorName, Text = $"{ResolveTaskAgent(completed.Data.ToolCallId)} finished" });
-                    break;
-
-                case SubagentFailedEvent failed:
-                    var failedName = ResolveTaskAgent(failed.Data.ToolCallId);
-                    Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = failedName, Text = $"{failedName} failed: {failed.Data.Error}" });
-                    break;
-
-                case SessionErrorEvent error:
-                    Add(new ChatEntry { Kind = ChatEntryKind.Error, Author = "System", Text = error.Data.Message });
-                    break;
-
-                case SessionIdleEvent:
-                    IsBusy = false;
-                    break;
-
-                default:
-                    return;
+                IsBusy = false;
+            }
+            else if (!_transcript.Apply(sessionEvent))
+            {
+                return;
             }
 
             _ = NotifyAsync();
         }
 
-        private void UpsertMessage(string messageId, string? agentId, string? content, bool append)
-        {
-            lock (_gate)
-            {
-                var entry = _entries.FindLast(e => e.Kind == ChatEntryKind.Assistant && e.Key == messageId);
-                if (entry is null)
-                {
-                    if (string.IsNullOrEmpty(content))
-                    {
-                        return;
-                    }
-
-                    _entries.Add(new ChatEntry
-                    {
-                        Kind = ChatEntryKind.Assistant,
-                        Key = messageId,
-                        Author = ResolveAgentUnlocked(agentId),
-                        IsSubagent = agentId is not null,
-                        Text = content,
-                    });
-                    return;
-                }
-
-                if (append)
-                {
-                    entry.Text += content;
-                }
-                else if (!string.IsNullOrEmpty(content))
-                {
-                    entry.Text = content;
-                }
-            }
-        }
-
-        /// <summary>Resolves the author of an event from its sub-agent instance id (null for the orchestrator).</summary>
-        private string ResolveAgent(string? agentId)
-        {
-            lock (_gate)
-            {
-                return ResolveAgentUnlocked(agentId);
-            }
-        }
-
-        private string ResolveAgentUnlocked(string? agentId) =>
-            agentId is null ? _orchestratorName
-            : _subagentByAgentId.TryGetValue(agentId, out var name) ? name
-            : "Sub-agent";
-
-        /// <summary>Resolves the sub-agent spawned by a given task tool call.</summary>
-        private string ResolveTaskAgent(string toolCallId)
-        {
-            lock (_gate)
-            {
-                return _subagentByToolCallId.TryGetValue(toolCallId, out var name) ? name : "Sub-agent";
-            }
-        }
-
-        private void Add(ChatEntry entry)
-        {
-            lock (_gate)
-            {
-                _entries.Add(entry);
-            }
-        }
+        private void Add(ChatEntry entry) => _transcript.Add(entry);
 
         private void CancelPendingQuestion()
         {
