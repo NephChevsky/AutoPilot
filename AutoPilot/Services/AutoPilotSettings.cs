@@ -4,7 +4,7 @@ namespace AutoPilot.Services
     {
         public const string SectionName = "Settings";
 
-        /// <summary>Repository the agents work on. Defaults to the process working directory.</summary>
+        /// <summary>Parent folder containing the git repositories the agents work on (each immediate child folder with a <c>.git</c> entry is a repository). Defaults to the process working directory.</summary>
         public string WorkingDirectory { get; set; } = "";
 
         /// <summary>Folder where the Copilot runtime stores its data (sessions, config, state). Empty uses the runtime default (~/.copilot).</summary>
@@ -21,7 +21,7 @@ namespace AutoPilot.Services
 
         public int VerificationTimeoutSeconds { get; set; } = 900;
 
-        /// <summary>Folder holding one git worktree per conversation. Empty uses the sibling folder <c>&lt;WorkingDirectory&gt;.worktrees</c> (outside the repository).</summary>
+        /// <summary>Folder holding the conversation worktrees, in one subfolder per repository (<c>&lt;WorktreesDirectory&gt;\&lt;repository&gt;\&lt;sessionId&gt;</c>). Empty uses, for each repository, the sibling folder <c>&lt;repository&gt;.worktrees</c> (outside the repository).</summary>
         public string WorktreesDirectory { get; set; } = "";
 
         /// <summary>Prefix of the branch created for each conversation; the session id is appended.</summary>
@@ -30,11 +30,23 @@ namespace AutoPilot.Services
         /// <summary>Name of the git remote the commit_and_push tool pushes to.</summary>
         public string GitRemote { get; set; } = "origin";
 
-        /// <summary>Resolves the worktrees folder (see <see cref="WorktreesDirectory"/>).</summary>
+        /// <summary>Resolves the worktrees root as if the working directory itself were a repository; a configured <see cref="WorktreesDirectory"/> is returned as-is. Prefer <see cref="ResolveWorktreesDirectory(string)"/>.</summary>
         public string ResolveWorktreesDirectory() =>
             string.IsNullOrWhiteSpace(WorktreesDirectory)
-                ? Path.GetFullPath(ResolveWorkingDirectory()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + ".worktrees"
+                ? ResolveWorktreesDirectory(ResolveWorkingDirectory())
                 : Path.GetFullPath(WorktreesDirectory);
+
+        /// <summary>
+        /// Resolves the folder holding the conversation worktrees of one repository: <c>&lt;repository&gt;.worktrees</c> by default,
+        /// or <c>&lt;WorktreesDirectory&gt;\&lt;repository folder name&gt;</c> when <see cref="WorktreesDirectory"/> is configured.
+        /// </summary>
+        public string ResolveWorktreesDirectory(string repositoryPath)
+        {
+            var repository = Path.GetFullPath(repositoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.IsNullOrWhiteSpace(WorktreesDirectory)
+                ? repository + ".worktrees"
+                : Path.Combine(Path.GetFullPath(WorktreesDirectory), Path.GetFileName(repository));
+        }
 
         public string ResolveWorkingDirectory() =>
             string.IsNullOrWhiteSpace(WorkingDirectory)

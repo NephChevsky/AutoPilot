@@ -32,15 +32,7 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton(sp => new UsageLedger(
     sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveUsageFile(),
     sp.GetRequiredService<ILogger<UsageLedger>>()));
-builder.Services.AddSingleton(sp =>
-{
-    var settings = sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value;
-    return new ConversationWorktrees(
-        settings.ResolveWorkingDirectory(),
-        settings.ResolveWorktreesDirectory(),
-        settings.BranchPrefix,
-        sp.GetRequiredService<ILogger<ConversationWorktrees>>());
-});
+builder.Services.AddSingleton<RepositoryCatalog>();
 builder.Services.AddScoped<AgentChatSession>();
 
 var app = builder.Build();
