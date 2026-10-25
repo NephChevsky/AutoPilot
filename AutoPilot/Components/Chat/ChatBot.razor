@@ -15,94 +15,97 @@
         <div class="conversations-header">
             <strong>Tasks</strong>
         </div>
+        @{
+            var panelRepository = PanelRepository;
+            IReadOnlyList<RepositoryTask> panelTasks = Tasks.GetAll();
+            var chatBlocked = Chat.IsBusy || Chat.IsLoading || Chat.IsMerging;
+        }
         @if (_repositories.Count == 0)
         {
             <div class="conversation-empty">No repositories found</div>
         }
         else
         {
-            var panelRepository = PanelRepository;
-            IReadOnlyList<RepositoryTask> panelTasks = panelRepository is null ? [] : Tasks.GetForRepository(panelRepository.Path);
-            var chatBlocked = Chat.IsBusy || Chat.IsLoading || Chat.IsMerging;
-            <select class="repo-select task-repo" value="@panelRepository?.Path" @onchange="OnTaskRepositoryChanged">
-                @foreach (var repo in _repositories)
-                {
-                    <option value="@repo.Path">@repo.Name</option>
-                }
-            </select>
             <div class="task-form">
+                <select class="repo-select task-repo" title="Repository for new tasks" aria-label="Repository for new tasks" value="@panelRepository?.Path" @onchange="OnTaskRepositoryChanged">
+                    @foreach (var repo in _repositories)
+                    {
+                        <option value="@repo.Path">@repo.Name</option>
+                    }
+                </select>
                 <input type="text" placeholder="Task title" @bind="_taskTitle" @bind:event="oninput" />
                 <textarea rows="2" placeholder="Description (optional)" @bind="_taskDescription" @bind:event="oninput"></textarea>
                 <button type="button" class="btn" @onclick="AddTaskAsync" disabled="@string.IsNullOrWhiteSpace(_taskTitle)">Add task</button>
             </div>
-            @if (_taskError is not null)
+        }
+        @if (_taskError is not null)
+        {
+            <div class="entry error">@_taskError</div>
+        }
+        <ul class="task-list">
+            @foreach (var task in panelTasks)
             {
-                <div class="entry error">@_taskError</div>
-            }
-            <ul class="task-list">
-                @foreach (var task in panelTasks)
-                {
-                    var current = task;
-                    <li class="task @(current.IsSent ? "sent" : "pending")">
-                        @if (_editingTaskId == current.Id && !current.IsSent)
+                var current = task;
+                <li class="task @(current.IsSent ? "sent" : "pending")">
+                    @if (_editingTaskId == current.Id && !current.IsSent)
+                    {
+                        <input type="text" @bind="_editTitle" @bind:event="oninput" />
+                        <textarea rows="2" @bind="_editDescription" @bind:event="oninput"></textarea>
+                        <div class="task-actions">
+                            <button type="button" class="btn" @onclick="() => SaveTaskAsync(current)" disabled="@string.IsNullOrWhiteSpace(_editTitle)">Save</button>
+                            <button type="button" class="btn secondary" @onclick="CancelEditTask">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <small class="task-repo-name">@TaskRepositoryName(current)</small>
+                        <div class="task-title">
+                            @if (current.IsSent)
+                            {
+                                <span class="task-badge">Sent</span>
+                            }
+                            @if (current.IsAgentCreated)
+                            {
+                                <span class="task-badge agent" title="@("Created by " + current.CreatedBy)">By agent</span>
+                            }
+                            @current.Title
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(current.Description))
                         {
-                            <input type="text" @bind="_editTitle" @bind:event="oninput" />
-                            <textarea rows="2" @bind="_editDescription" @bind:event="oninput"></textarea>
-                            <div class="task-actions">
-                                <button type="button" class="btn" @onclick="() => SaveTaskAsync(current)" disabled="@string.IsNullOrWhiteSpace(_editTitle)">Save</button>
-                                <button type="button" class="btn secondary" @onclick="CancelEditTask">Cancel</button>
-                            </div>
+                            <div class="task-description">@current.Description</div>
+                        }
+                        @if (current.IsSent)
+                        {
+                            <small>Sent @current.SentAt!.Value.ToLocalTime().ToString("g")</small>
                         }
                         else
                         {
-                            <div class="task-title">
-                                @if (current.IsSent)
-                                {
-                                    <span class="task-badge">Sent</span>
-                                }
-                                @if (current.IsAgentCreated)
-                                {
-                                    <span class="task-badge agent" title="@("Created by " + current.CreatedBy)">By agent</span>
-                                }
-                                @current.Title
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(current.Description))
-                            {
-                                <div class="task-description">@current.Description</div>
-                            }
+                            <small>Created @current.CreatedAt.ToLocalTime().ToString("g")</small>
+                        }
+                        <div class="task-actions">
                             @if (current.IsSent)
                             {
-                                <small>Sent @current.SentAt!.Value.ToLocalTime().ToString("g")</small>
+                                <button type="button" class="btn secondary" @onclick="() => OpenTaskConversationAsync(current)" disabled="@chatBlocked">Open conversation</button>
                             }
                             else
                             {
-                                <small>Created @current.CreatedAt.ToLocalTime().ToString("g")</small>
+                                <button type="button" class="btn" @onclick="() => SendTaskAsync(current)" disabled="@chatBlocked">Send</button>
+                                <button type="button" class="btn secondary" @onclick="() => StartEditTask(current)">Edit</button>
                             }
-                            <div class="task-actions">
-                                @if (current.IsSent)
-                                {
-                                    <button type="button" class="btn secondary" @onclick="() => OpenTaskConversationAsync(current)" disabled="@chatBlocked">Open conversation</button>
-                                }
-                                else
-                                {
-                                    <button type="button" class="btn" @onclick="() => SendTaskAsync(current)" disabled="@chatBlocked">Send</button>
-                                    <button type="button" class="btn secondary" @onclick="() => StartEditTask(current)">Edit</button>
-                                }
-                                <button type="button" class="btn danger" @onclick="() => DeleteTaskAsync(current)">Delete</button>
-                                @if (!string.IsNullOrEmpty(current.SourceSessionId))
-                                {
-                                    <button type="button" class="btn secondary" @onclick="() => OpenSourceConversationAsync(current)" disabled="@chatBlocked">Open requesting conversation</button>
-                                }
-                            </div>
-                        }
-                    </li>
-                }
-                @if (panelTasks.Count == 0)
-                {
-                    <li class="conversation-empty">No tasks</li>
-                }
-            </ul>
-        }
+                            <button type="button" class="btn danger" @onclick="() => DeleteTaskAsync(current)">Delete</button>
+                            @if (!string.IsNullOrEmpty(current.SourceSessionId))
+                            {
+                                <button type="button" class="btn secondary" @onclick="() => OpenSourceConversationAsync(current)" disabled="@chatBlocked">Open requesting conversation</button>
+                            }
+                        </div>
+                    }
+                </li>
+            }
+            @if (panelTasks.Count == 0)
+            {
+                <li class="conversation-empty">No tasks</li>
+            }
+        </ul>
     </section>
     <div class="conversations-header">
         <strong>Conversations</strong>
@@ -469,7 +472,7 @@
     private bool _mergeConfirm;
     private string? _mergeError;
 
-    // Tasks panel state (its repository selection is separate from the new-conversation one).
+    // Tasks panel state (the repository selection is the target for new tasks only).
     private string? _taskRepoPath;
     private string _taskTitle = "";
     private string _taskDescription = "";
@@ -498,7 +501,16 @@
     {
         _taskRepoPath = e.Value?.ToString();
         _taskError = null;
-        _editingTaskId = null;
+    }
+
+    private static string TaskRepositoryName(RepositoryTask task)
+    {
+        if (!string.IsNullOrWhiteSpace(task.RepositoryName))
+        {
+            return task.RepositoryName;
+        }
+
+        return Path.GetFileName((task.RepositoryPath ?? "").TrimEnd('\\', '/'));
     }
 
     private async Task AddTaskAsync()
@@ -588,7 +600,7 @@
             .FirstOrDefault(r => string.Equals(r.Path, current.RepositoryPath, StringComparison.OrdinalIgnoreCase));
         if (repository is null)
         {
-            _taskError = $"Repository '{task.RepositoryName}' was not found.";
+            _taskError = $"Repository '{TaskRepositoryName(current)}' was not found.";
             return;
         }
 
