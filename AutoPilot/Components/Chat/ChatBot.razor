@@ -177,6 +177,32 @@
             </div>
             @{ var totals = Ledger.GetTotals(); }
             <div>All sessions: @FormatPremium(totals.PremiumRequests) premium requests · @FormatCredits(totals.AiCredits) AI credits (@totals.SessionCount sessions)</div>
+            <details class="agent-costs">
+                <summary>Cost by agent</summary>
+                @{ var agentRows = BuildAgentCostRows(); }
+                @if (agentRows.Count == 0)
+                {
+                    <div>No per-agent data yet</div>
+                }
+                else
+                {
+                    <table>
+                        <thead>
+                            <tr><th>Agent</th><th>This session</th><th>All sessions</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in agentRows)
+                            {
+                                <tr>
+                                    <td>@row.Label</td>
+                                    <td>@FormatAgentFigures(row.Session)</td>
+                                    <td>@FormatAgentFigures(row.Total)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </details>
         </div>
     </header>
 
@@ -890,6 +916,32 @@
 
         return InvokeAsync(StateHasChanged);
     }
+
+    private sealed record AgentCostRow(string Key, string Label, AgentCost? Session, AgentCost? Total);
+
+    private List<AgentCostRow> BuildAgentCostRows()
+    {
+        var totals = Ledger.GetAgentTotals();
+        var session = Chat.CurrentCost?.Agents;
+        var names = totals.Keys.Union(session?.Keys.AsEnumerable() ?? [], StringComparer.Ordinal);
+        return names
+            .Select(name =>
+            {
+                var total = totals.GetValueOrDefault(name);
+                var current = session?.GetValueOrDefault(name);
+                var label = !string.IsNullOrWhiteSpace(total?.DisplayName) ? total.DisplayName
+                    : !string.IsNullOrWhiteSpace(current?.DisplayName) ? current.DisplayName
+                    : name;
+                return new AgentCostRow(name, label, current, total);
+            })
+            .OrderByDescending(r => r.Total?.AiCredits ?? 0)
+            .ThenByDescending(r => r.Total?.PremiumCost ?? 0)
+            .ThenBy(r => r.Key, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static string FormatAgentFigures(AgentCost? agent) =>
+        agent is null ? "—" : $"{FormatPremium(agent.PremiumCost)} premium requests · {FormatCredits(agent.AiCredits)} AI credits";
 
     private static string FormatPremium(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 

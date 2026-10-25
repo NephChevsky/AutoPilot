@@ -95,6 +95,9 @@ namespace AutoPilot.Services
         /// <summary>Sums all records.</summary>
         public CostTotals GetTotals() => UsageAccumulator.Total(GetAll());
 
+        /// <summary>Sums per-agent figures over all records, keyed by agent name.</summary>
+        public IReadOnlyDictionary<string, AgentCost> GetAgentTotals() => UsageAccumulator.TotalByAgent(GetAll());
+
         // Must be called with _lock held.
         // Returns null while the file is unreadable (nothing is cached in that case).
         private Dictionary<string, SessionCost>? EnsureLoaded() => _records ??= Load();
