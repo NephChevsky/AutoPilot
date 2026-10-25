@@ -433,6 +433,18 @@
     gap: 0.5rem;
 }
 
+.merge-confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.merge-confirm span {
+    flex: 1 1 20rem;
+}
+
 .diff-base {
     margin-left: 0.5rem;
     color: #6c757d;
