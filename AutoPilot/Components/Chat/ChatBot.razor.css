@@ -465,6 +465,7 @@
 }
 
 .diff-files {
+    flex-shrink: 0;
     list-style: none;
     margin: 0;
     padding: 0;
@@ -504,6 +505,7 @@
     }
 
 .diff-file {
+    flex-shrink: 0;
     border: 1px solid #dee2e6;
     border-radius: 0.5rem;
     overflow: hidden;
