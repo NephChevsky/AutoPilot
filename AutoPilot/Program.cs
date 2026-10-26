@@ -29,9 +29,28 @@ builder.Services.AddSingleton(sp =>
         Logger = sp.GetRequiredService<ILogger<CopilotClient>>(),
     });
 });
-builder.Services.AddSingleton(sp => new UsageLedger(
-    sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveUsageFile(),
-    sp.GetRequiredService<ILogger<UsageLedger>>()));
+builder.Services.AddSingleton(sp =>
+{
+    var settings = sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value;
+    var logger = sp.GetRequiredService<ILogger<UsageCache>>();
+    string orchestratorName;
+    try
+    {
+        orchestratorName = sp.GetRequiredService<AgentCatalog>().LoadAgents()
+            .FirstOrDefault(a => string.Equals(a.Name, settings.OrchestratorAgent, StringComparison.OrdinalIgnoreCase))?.DisplayName
+            ?? settings.OrchestratorAgent;
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not resolve the orchestrator display name; using '{Name}'.", settings.OrchestratorAgent);
+        orchestratorName = settings.OrchestratorAgent;
+    }
+
+    var repositories = sp.GetRequiredService<RepositoryCatalog>();
+    // The repository scan runs once, when the cache loads.
+    var filter = new Lazy<Func<string?, bool>>(() => AgentChatSession.CreateConversationDirectoryFilter(repositories, settings));
+    return new UsageCache(settings.ResolveSessionStateDirectory(), orchestratorName, directory => filter.Value(directory), logger);
+});
 builder.Services.AddSingleton(sp => new TaskStore(
     sp.GetRequiredService<IOptions<AutoPilotSettings>>().Value.ResolveTasksFile(),
     sp.GetRequiredService<ILogger<TaskStore>>()));
@@ -39,6 +58,19 @@ builder.Services.AddSingleton<RepositoryCatalog>();
 builder.Services.AddScoped<AgentChatSession>();
 
 var app = builder.Build();
+
+// Warm the usage cache in the background so the first render is not blocked.
+_ = Task.Run(() =>
+{
+    try
+    {
+        app.Services.GetRequiredService<UsageCache>().EnsureLoaded();
+    }
+    catch (Exception ex)
+    {
+        app.Services.GetRequiredService<ILogger<UsageCache>>().LogWarning(ex, "Failed to load past usage from the Copilot session files.");
+    }
+});
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

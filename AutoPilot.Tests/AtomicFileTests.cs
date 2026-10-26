@@ -1,5 +1,4 @@
 using AutoPilot.Services;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AutoPilot.Tests
 {
@@ -180,62 +179,6 @@ namespace AutoPilot.Tests
             }
 
             Assert.True(File.Exists(source));
-        }
-
-        [Fact]
-        public async Task UsageLedger_Record_SucceedsWhenTargetBrieflyLocked()
-        {
-            if (!OperatingSystem.IsWindows())
-            {
-                return;
-            }
-
-            var path = Path_("usage.json");
-            var ledger = new UsageLedger(path, NullLogger<UsageLedger>.Instance);
-            await ledger.RecordAsync(new SessionCost { SessionId = "s1" });
-
-            var holder = HoldOpen(path);
-            var release = Task.Run(async () =>
-            {
-                await Task.Delay(100);
-                holder.Dispose();
-            });
-
-            await ledger.RecordAsync(new SessionCost { SessionId = "s2" });
-            await release;
-
-            var reloaded = new UsageLedger(path, NullLogger<UsageLedger>.Instance);
-            Assert.NotNull(reloaded.Get("s1"));
-            Assert.NotNull(reloaded.Get("s2"));
-        }
-
-        [Fact]
-        public async Task UsageLedger_Record_LockLongerThanBudget_ThrowsLeavesNoTempAndKeepsTarget()
-        {
-            if (!OperatingSystem.IsWindows())
-            {
-                return;
-            }
-
-            var path = Path_("usage.json");
-            var ledger = new UsageLedger(path, NullLogger<UsageLedger>.Instance, TinyPolicy);
-            await ledger.RecordAsync(new SessionCost { SessionId = "s1" });
-
-            var holder = HoldOpen(path);
-            try
-            {
-                var ex = await Record.ExceptionAsync(() => ledger.RecordAsync(new SessionCost { SessionId = "s2" }));
-                Assert.True(ex is IOException or UnauthorizedAccessException, ex?.ToString());
-            }
-            finally
-            {
-                holder.Dispose();
-            }
-
-            Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));
-            var reloaded = new UsageLedger(path, NullLogger<UsageLedger>.Instance);
-            Assert.NotNull(reloaded.Get("s1"));
-            Assert.Null(reloaded.Get("s2"));
         }
     }
 }

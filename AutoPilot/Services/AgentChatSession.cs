@@ -15,7 +15,7 @@ namespace AutoPilot.Services
         CopilotClient client,
         AgentCatalog catalog,
         IOptions<AutoPilotSettings> options,
-        UsageLedger ledger,
+        UsageCache cache,
         TaskStore tasks,
         RepositoryCatalog repositories,
         ILogger<AgentChatSession> logger) : IAsyncDisposable
@@ -24,12 +24,9 @@ namespace AutoPilot.Services
         private static readonly TimeSpan MetricsTimeout = TimeSpan.FromSeconds(5);
         // Serializes snapshot-and-record so an older snapshot can never overwrite a newer one.
         private readonly SemaphoreSlim _usageGate = new(1, 1);
-        // Resume-safe accounting: ledger record and SDK metrics as they were when this session was created/resumed.
         private CostRefreshCoalescer? _costRefreshInstance;
         private CostRefreshCoalescer _costRefresh =>
             LazyInitializer.EnsureInitialized(ref _costRefreshInstance, () => new CostRefreshCoalescer(SnapshotAndRecordAsync))!;
-        private UsageSnapshot? _usageBaseline;
-        private SessionCost? _storedAtBaseline;
         private string? _title;
         private readonly ChatTranscript _transcript = new();
         private CopilotSession? _session;
@@ -310,6 +307,20 @@ namespace AutoPilot.Services
         }
 
         /// <summary>
+        /// Builds a predicate telling whether a session working directory belongs to a discovered repository (its main directory or
+        /// its worktrees root), using the same rule as <see cref="ListConversationsAsync"/>. Repositories are discovered once, when this is called.
+        /// </summary>
+        public static Func<string?, bool> CreateConversationDirectoryFilter(RepositoryCatalog repositories, AutoPilotSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(repositories);
+            ArgumentNullException.ThrowIfNull(settings);
+            var scopes = repositories.GetRepositories()
+                .Select(r => (Main: NormalizePath(r.Path), WorktreesRoot: NormalizePath(settings.ResolveWorktreesDirectory(r.Path))))
+                .ToList();
+            return directory => scopes.Any(s => IsConversationDirectory(directory, s.Main, s.WorktreesRoot));
+        }
+
+        /// <summary>
         /// True when <paramref name="directory"/> is the main working directory or lies strictly under the worktrees root
         /// (the root itself is not a conversation directory). Null, empty or malformed paths yield false; never throws.
         /// Both <paramref name="mainDirectory"/> and <paramref name="worktreesRoot"/> must already be normalized.
@@ -467,7 +478,7 @@ namespace AutoPilot.Services
                     OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
                     Hooks = hooks,
                 });
-                await TakeBaselineAsync(resumed, resumed: true);
+                CurrentCost = cache.Get(resumed.SessionId);
                 CurrentBranch = branch;
                 CurrentRepository = repository;
                 return resumed;
@@ -492,47 +503,21 @@ namespace AutoPilot.Services
             CurrentSessionId = session.SessionId;
             CurrentBranch = branch;
             CurrentRepository = repository;
-            await TakeBaselineAsync(session, resumed: false);
+            CurrentCost = cache.Get(session.SessionId);
             return session;
         }
 
         /// <summary>
-        /// Remembers the SDK metrics and ledger record at session start. A new session starts from zero; for a resumed one a
-        /// failed baseline disables recording (null baseline) rather than risking double-counting.
-        /// </summary>
-        private async Task TakeBaselineAsync(CopilotSession session, bool resumed)
-        {
-            _storedAtBaseline = ledger.Get(session.SessionId);
-            CurrentCost = _storedAtBaseline;
-            _usageBaseline = resumed ? null : UsageSnapshot.Zero;
-            if (!resumed)
-            {
-                return;
-            }
-
-            try
-            {
-                using var timeout = new CancellationTokenSource(MetricsTimeout);
-                var metrics = await session.Rpc.Usage.GetMetricsAsync(timeout.Token);
-                _usageBaseline = UsageAccumulator.ToSnapshot(metrics, _transcript.OrchestratorName);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to read the usage baseline of session {SessionId}; its cost will not be recorded.", session.SessionId);
-            }
-        }
-
-        /// <summary>
-        /// Reads the current metrics and saves stored-at-baseline + (current - baseline) to the ledger. Never throws:
+        /// Reads the current (cumulative) SDK metrics and replaces the session's entry in the usage cache. Never throws:
         /// failures are logged only and never reach the transcript.
         /// </summary>
         private Task SnapshotAndRecordAsync() =>
-            SnapshotAndRecordAsync(_session, _usageBaseline, _storedAtBaseline, _title, closing: false);
+            SnapshotAndRecordAsync(_session, _title, closing: false);
 
-        private async Task SnapshotAndRecordAsync(CopilotSession? session, UsageSnapshot? baseline, SessionCost? stored, string? title, bool closing)
+        private async Task SnapshotAndRecordAsync(CopilotSession? session, string? title, bool closing)
         {
             var orchestratorName = _transcript.OrchestratorName;
-            if (session is null || baseline is null)
+            if (session is null)
             {
                 return;
             }
@@ -551,13 +536,16 @@ namespace AutoPilot.Services
                     using var timeout = new CancellationTokenSource(MetricsTimeout);
                     var metrics = await session.Rpc.Usage.GetMetricsAsync(timeout.Token);
                     var current = UsageAccumulator.ToSnapshot(metrics, orchestratorName);
-                    var cost = UsageAccumulator.Apply(session.SessionId, stored, baseline, current, title);
-                    if (stored is null && !UsageAccumulator.HasUsage(cost))
+                    var existing = cache.Get(session.SessionId);
+                    var now = DateTimeOffset.UtcNow;
+                    var cost = UsageAccumulator.ToSessionCost(
+                        session.SessionId, current, existing?.Title ?? UsageAccumulator.Truncate(title), existing?.FirstSeen ?? now, now);
+                    if (existing is null && !UsageAccumulator.HasUsage(cost))
                     {
                         return;
                     }
 
-                    await ledger.RecordAsync(cost);
+                    cache.Update(cost);
                     if (!closing && ReferenceEquals(_session, session))
                     {
                         CurrentCost = cost;
@@ -632,12 +620,8 @@ namespace AutoPilot.Services
 
             // Capture and clear all state synchronously so a session created while we await is not affected.
             var session = _session;
-            var baseline = _usageBaseline;
-            var stored = _storedAtBaseline;
             var title = _title;
             _session = null;
-            _usageBaseline = null;
-            _storedAtBaseline = null;
             _title = null;
             CurrentCost = null;
             if (session is null)
@@ -645,7 +629,7 @@ namespace AutoPilot.Services
                 return;
             }
 
-            await SnapshotAndRecordAsync(session, baseline, stored, title, closing: true);
+            await SnapshotAndRecordAsync(session, title, closing: true);
             try
             {
                 await session.DisposeAsync();

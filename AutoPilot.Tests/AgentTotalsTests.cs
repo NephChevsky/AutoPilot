@@ -65,26 +65,17 @@ namespace AutoPilot.Tests
         }
 
         [Fact]
-        public async Task Ledger_GetAgentTotals_AggregatesRecordsAndIsEmptyWhenNone()
+        public void Cache_GetAgentTotals_AggregatesEntriesAndIsEmptyWhenNone()
         {
             var dir = Path.Combine(Path.GetTempPath(), "autopilot-agents-" + Guid.NewGuid().ToString("N"));
-            try
-            {
-                var ledger = new UsageLedger(Path.Combine(dir, "usage", "c.json"), Microsoft.Extensions.Logging.Abstractions.NullLogger<UsageLedger>.Instance);
-                Assert.Empty(ledger.GetAgentTotals());
+            var cache = new UsageCache(dir, "Orchestrator", _ => true, Microsoft.Extensions.Logging.Abstractions.NullLogger<UsageCache>.Instance);
+            Assert.Empty(cache.GetAgentTotals());
 
-                await ledger.RecordAsync(Session(T0, ("dev", new AgentCost { NanoAiu = 1e9 })));
-                await ledger.RecordAsync(Session(T0, ("dev", new AgentCost { NanoAiu = 2e9 })));
+            cache.Update(Session(T0, ("dev", new AgentCost { NanoAiu = 1e9 })));
+            cache.Update(Session(T0, ("dev", new AgentCost { NanoAiu = 2e9 })));
 
-                Assert.Equal(3, ledger.GetAgentTotals()["dev"].AiCredits, 6);
-            }
-            finally
-            {
-                if (Directory.Exists(dir))
-                {
-                    Directory.Delete(dir, recursive: true);
-                }
-            }
+            Assert.Equal(3, cache.GetAgentTotals()["dev"].AiCredits, 6);
+            Assert.False(Directory.Exists(dir));
         }
 
         [Fact]
