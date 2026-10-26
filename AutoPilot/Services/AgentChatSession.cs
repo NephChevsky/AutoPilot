@@ -464,7 +464,7 @@ namespace AutoPilot.Services
 
             if (resumeSessionId is not null)
             {
-                var resumed = await client.ResumeSessionAsync(resumeSessionId, new ResumeSessionConfig
+                var resumed = await client.ResumeSessionAsync(resumeSessionId, BuiltInAgents.Apply(new ResumeSessionConfig
                 {
                     Model = orchestrator.Model,
                     ReasoningEffort = orchestrator.ReasoningEffort,
@@ -477,14 +477,14 @@ namespace AutoPilot.Services
                     OnPermissionRequest = PermissionHandler.ApproveAll,
                     OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
                     Hooks = hooks,
-                });
+                }));
                 CurrentCost = cache.Get(resumed.SessionId);
                 CurrentBranch = branch;
                 CurrentRepository = repository;
                 return resumed;
             }
 
-            var session = await client.CreateSessionAsync(new SessionConfig
+            var session = await client.CreateSessionAsync(BuiltInAgents.Apply(new SessionConfig
             {
                 SessionId = sessionId,
                 Model = orchestrator.Model,
@@ -497,7 +497,7 @@ namespace AutoPilot.Services
                 OnPermissionRequest = PermissionHandler.ApproveAll,
                 OnUserInputRequest = (request, _) => WaitForUserAnswerAsync(request),
                 Hooks = hooks,
-            });
+            }));
 
             _subscription = session.On<SessionEvent>(OnSessionEvent);
             CurrentSessionId = session.SessionId;
