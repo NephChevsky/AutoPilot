@@ -16,11 +16,6 @@ namespace AutoPilot.Services
         /// <summary>Name of the agent that starts every conversation.</summary>
         public string OrchestratorAgent { get; set; } = "orchestrator";
 
-        /// <summary>Shell commands executed, in order, by the run_verification tool.</summary>
-        public List<string> VerificationCommands { get; set; } = [];
-
-        public int VerificationTimeoutSeconds { get; set; } = 900;
-
         /// <summary>Folder holding the conversation worktrees, in one subfolder per repository (<c>&lt;WorktreesDirectory&gt;\&lt;repository&gt;\&lt;sessionId&gt;</c>). Empty uses, for each repository, the sibling folder <c>&lt;repository&gt;.worktrees</c> (outside the repository).</summary>
         public string WorktreesDirectory { get; set; } = "";
 

@@ -215,7 +215,7 @@ namespace AutoPilot.Tests
     public class CommitAndPushTests
     {
         private static WorkspaceTools Tools(string directory, string? branch, string remote = "origin") =>
-            new(directory, [], TimeSpan.FromMinutes(1), branch, remote);
+            new(directory, branch, remote);
 
         [Fact]
         public async Task Pushes_the_conversation_branch_to_the_remote()

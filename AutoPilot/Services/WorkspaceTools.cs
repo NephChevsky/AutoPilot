@@ -7,13 +7,12 @@ using Microsoft.Extensions.AI;
 namespace AutoPilot.Services
 {
     /// <summary>
-    /// Host-implemented tools referenced by the agent definitions: <c>get_diff</c> and <c>run_verification</c>.
+    /// Host-implemented tools referenced by the agent definitions: <c>get_diff</c> and <c>commit_and_push</c>.
     /// One instance per conversation, so the diff baseline is the state of the workspace when the run started.
     /// </summary>
-    public sealed class WorkspaceTools(string workingDirectory, IReadOnlyList<string> verificationCommands, TimeSpan verificationTimeout, string? branch = null, string remote = "origin")
+    public sealed class WorkspaceTools(string workingDirectory, string? branch = null, string remote = "origin")
     {
         private const int MaxDiffChars = 120_000;
-        private const int MaxCommandOutputChars = 12_000;
         private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(2);
 
         private string? _baselineTree;
@@ -44,14 +43,6 @@ namespace AutoPilot.Services
                 {
                     Name = "get_diff",
                     Description = "Returns the current changes in the workspace relative to the baseline recorded when the run started. Pre-existing user changes are excluded.",
-                }),
-            CopilotTool.DefineTool(
-                (CancellationToken cancellationToken = default) => RunVerificationAsync(cancellationToken),
-                new CopilotToolOptions { SkipPermission = true },
-                new AIFunctionFactoryOptions
-                {
-                    Name = "run_verification",
-                    Description = "Runs the repository's configured build and test commands and returns the real exit codes and output. The result is the authoritative verification outcome.",
                 }),
             CopilotTool.DefineTool(
                 ([Description("Concise commit message describing the change.")] string message,
@@ -173,42 +164,6 @@ namespace AutoPilot.Services
                 : $"{result[..MaxDiffChars]}\n... [diff truncated, {result.Length - MaxDiffChars} more characters]";
         }
 
-        private async Task<string> RunVerificationAsync(CancellationToken cancellationToken)
-        {
-            if (verificationCommands.Count == 0)
-            {
-                return "STATUS: NOT_CONFIGURED\nNo verification commands are configured (Settings:VerificationCommands).";
-            }
-
-            var report = new StringBuilder();
-            var passed = true;
-            foreach (var command in verificationCommands)
-            {
-                var startInfo = OperatingSystem.IsWindows()
-                    ? new ProcessStartInfo("cmd.exe", $"/d /s /c \"{command}\"")
-                    : new ProcessStartInfo("/bin/sh") { ArgumentList = { "-c", command } };
-                startInfo.WorkingDirectory = workingDirectory;
-
-                var result = await RunProcessAsync(startInfo, verificationTimeout, cancellationToken);
-                var succeeded = !result.TimedOut && result.ExitCode == 0;
-
-                report.AppendLine($"## {command}")
-                    .AppendLine($"Exit code: {(result.TimedOut ? $"timed out after {verificationTimeout}" : result.ExitCode)}")
-                    .AppendLine("Output (tail):")
-                    .AppendLine(Tail(result.Combined, MaxCommandOutputChars))
-                    .AppendLine();
-
-                if (!succeeded)
-                {
-                    passed = false;
-                    report.AppendLine("Stopped: remaining commands were not run.");
-                    break;
-                }
-            }
-
-            return $"STATUS: {(passed ? "PASSED" : "FAILED")}\n\n{report}";
-        }
-
         /// <summary>
         /// Writes the full working tree (tracked and untracked, honoring .gitignore) to a git tree object
         /// using a temporary index, so the repository's real index and working tree are left untouched.
@@ -316,9 +271,6 @@ namespace AutoPilot.Services
                 }
             }
         }
-
-        private static string Tail(string text, int maxChars) =>
-            text.Length <= maxChars ? text : $"... [{text.Length - maxChars} earlier characters omitted]\n{text[^maxChars..]}";
 
         internal sealed record ProcessResult(int ExitCode, string StdOut, string StdErr, string Combined, bool TimedOut);
     }

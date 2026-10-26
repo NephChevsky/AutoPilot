@@ -74,7 +74,7 @@ You own the inner loop: build, run the relevant tests, and fix until green befor
 - Do not claim that a test passed unless it was actually executed and its result observed.
 - Report environmental failures separately from implementation defects.
 - Do not create, modify, or delete acceptance test files (`*AcceptanceTests.*`). The Tester owns them. If one appears wrong, report it to the Orchestrator with evidence.
-- The Orchestrator verifies your results independently; report exactly what you ran and observed.
+- Your reported commands, exit codes and output excerpts are the verification evidence. They must come from a run on the final state of your changes, and you must report exactly what you ran and observed.
 
 # Handling Feedback
 
@@ -112,7 +112,7 @@ Then report:
 - Important files created or modified.
 - Architectural or behavioral decisions.
 - Tests added or updated.
-- Commands executed and their observed exit codes and results.
+- Commands executed and their observed exit codes, with output excerpts.
 - Ambiguities and the options you see.
 - Known limitations.
 - Outstanding issues requiring Orchestrator attention.

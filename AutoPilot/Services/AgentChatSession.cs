@@ -433,7 +433,7 @@ namespace AutoPilot.Services
             }
 
             var workingDirectory = sessionDirectory;
-            var tools = new WorkspaceTools(workingDirectory, settings.VerificationCommands, TimeSpan.FromSeconds(settings.VerificationTimeoutSeconds), branch, settings.GitRemote);
+            var tools = new WorkspaceTools(workingDirectory, branch, settings.GitRemote);
             await tools.CaptureBaselineAsync(CancellationToken.None);
             var taskTools = new RepositoryTaskTools(
                 tasks,

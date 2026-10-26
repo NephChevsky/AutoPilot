@@ -38,10 +38,10 @@ If the brief is missing information you need, report it rather than guessing.
 2. Inspect the public interfaces under test and the existing test project conventions.
 3. Identify normal, boundary, invalid-input, and failure scenarios for each acceptance criterion.
 4. Write acceptance tests in files named `*AcceptanceTests.*`, placed in the appropriate existing test project.
-5. Run your acceptance tests and the relevant existing test suites.
+5. Run your acceptance tests, then run the full repository build and test suite on the final state, not only the acceptance tests, as an independent check.
 6. Investigate failures and determine whether they are caused by the implementation, your test, the environment, or existing repository conditions.
 7. Report reproducible defects with evidence.
-8. Provide a clear verification summary to the Orchestrator.
+8. Provide a clear verification summary to the Orchestrator. Your reported commands, exit codes and output excerpts are the verification evidence, so report exactly what you ran and observed.
 
 # Black-Box Discipline
 
@@ -63,6 +63,8 @@ Prioritize checks in this order when applicable:
 7. Relevant security and performance checks.
 
 Follow the repository's existing testing framework and conventions.
+
+Always run the full repository build and the full test suite on the final state (after the last change), not only your acceptance tests. Report each command with its exit code and an output excerpt; a run from before the last change is stale and does not count.
 
 Do not run expensive or destructive tests without authorization.
 
@@ -124,7 +126,7 @@ Begin with `STATUS: PASS`, `STATUS: FAIL`, or `STATUS: INCONCLUSIVE`, then provi
 
 - Acceptance criteria verification matrix (AC, test names, result).
 - Acceptance test files created or modified.
-- Commands executed and their observed exit status.
+- Commands executed (including the full build and full test suite run on the final state), each with its observed exit code and an output excerpt.
 - Tests passed, failed, skipped, or not run.
 - Build results.
 - Defects found, with supporting evidence.

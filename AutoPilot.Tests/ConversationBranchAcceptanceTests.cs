@@ -80,8 +80,8 @@ public class ConversationBranchAcceptanceTests : IDisposable
     private ConversationWorktrees Wt(string repo, string prefix = "autopilot/") =>
         new(repo, Path.Combine(_root, "wts"), prefix);
 
-    private static WorkspaceTools Tools(string dir, string? branch, string remote = "origin", params string[] verify) =>
-        new(dir, verify, TimeSpan.FromSeconds(60), branch, remote);
+    private static WorkspaceTools Tools(string dir, string? branch, string remote = "origin") =>
+        new(dir, branch, remote);
 
     private async Task<(string Repo, string Bare, ConversationWorkspace Ws, WorkspaceTools Tools)> PushSetup(string id = "sess1")
     {
@@ -254,21 +254,109 @@ public class ConversationBranchAcceptanceTests : IDisposable
     }
 
     [Fact]
-    public async Task AC2_ToolsDeclared_AndRunVerificationRunsInWorktree()
+    public async Task AC1_ToolsDeclared_GetDiffAndCommitAndPushOnly_NoRunVerification()
     {
         var repo = NewRepo();
         var a = await Wt(repo).EnsureAsync("s1", _ct);
-        File.WriteAllText(Path.Combine(a.Directory, "marker-wt.txt"), "m");
-        // git ls-files --others lists untracked files in cwd's repo; marker exists only in the worktree
-        var t = Tools(a.Directory, a.Branch, "origin", "git status --porcelain");
+        var t = Tools(a.Directory, a.Branch);
         var names = t.CreateTools().Select(x => x.Name).ToList();
         Assert.Contains("get_diff", names);
-        Assert.Contains("run_verification", names);
         Assert.Contains("commit_and_push", names);
+        Assert.DoesNotContain("run_verification", names);
+        Assert.Equal(2, names.Count);
+    }
 
-        var fn = Assert.IsAssignableFrom<AIFunction>(t.CreateTools().First(x => x.Name == "run_verification"));
-        var result = (await fn.InvokeAsync(new AIFunctionArguments(), _ct))?.ToString() ?? "";
-        Assert.Contains("marker-wt.txt", result);
+    [Fact]
+    public void AC1_Constructor_DefaultsBranchAndRemote()
+    {
+        var t = new WorkspaceTools(_root);
+        Assert.Equal(["commit_and_push", "get_diff"], t.CreateTools().Select(x => x.Name).Order(StringComparer.Ordinal).ToList());
+    }
+
+    [Fact]
+    public void AC2_AC5_Settings_NoVerificationProperties()
+    {
+        var names = typeof(AutoPilotSettings).GetProperties().Select(p => p.Name).ToList();
+        Assert.DoesNotContain("VerificationCommands", names);
+        Assert.DoesNotContain("VerificationTimeoutSeconds", names);
+    }
+
+    [Fact]
+    public void AC2_AppSettingsJson_HasNoVerificationKeys()
+    {
+        var text = File.ReadAllText(Path.Combine(RepoRoot(), "AutoPilot", "appsettings.json"));
+        Assert.DoesNotContain("VerificationCommands", text);
+        Assert.DoesNotContain("VerificationTimeoutSeconds", text);
+    }
+
+    [Fact]
+    public void AC3_AC4_AgentFiles_DoNotMentionRunVerification()
+    {
+        var files = Directory.GetFiles(Path.Combine(RepoRoot(), "AutoPilot", "Agents"), "*.md");
+        Assert.NotEmpty(files);
+        foreach (var f in files)
+        {
+            var text = File.ReadAllText(f);
+            Assert.False(text.Contains("run_verification"), Path.GetFileName(f) + " still mentions run_verification");
+        }
+    }
+
+    [Fact]
+    public void AC3_AC4_Orchestrator_EvidenceRules()
+    {
+        var agents = Path.Combine(RepoRoot(), "AutoPilot", "Agents");
+        var orch = File.ReadAllText(Path.Combine(agents, "orchestrator.md"));
+        Assert.Contains("INCONCLUSIVE", orch);
+        Assert.Contains("commit_and_push", orch);
+        Assert.Contains("exit code", orch, StringComparison.OrdinalIgnoreCase);
+        foreach (var n in new[] { "implementer.md", "tester.md" })
+            Assert.Contains("exit code", File.ReadAllText(Path.Combine(agents, n)), StringComparison.OrdinalIgnoreCase);
+        var tester = File.ReadAllText(Path.Combine(agents, "tester.md"));
+        Assert.Contains("full", tester, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("test suite", tester, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AC5_NoReferencesRemainInRepository()
+    {
+        var root = RepoRoot();
+        string[] needles = ["run_verification", "VerificationCommands", "VerificationTimeoutSeconds"];
+        var skipDirs = new HashSet<string>(["bin", "obj", ".git", ".vs"], StringComparer.OrdinalIgnoreCase);
+        const string thisFile = "ConversationBranchAcceptanceTests.cs";
+        var hits = new List<string>();
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            foreach (var sub in Directory.EnumerateDirectories(dir))
+            {
+                if (skipDirs.Contains(Path.GetFileName(sub))) continue;
+                pending.Push(sub);
+            }
+            foreach (var f in Directory.EnumerateFiles(dir))
+            {
+                if (string.Equals(Path.GetFileName(f), thisFile, StringComparison.OrdinalIgnoreCase)) continue;
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".cs" or ".md" or ".json" or ".csproj" or ".slnx" or ".razor" or ".yml" or ".yaml" or ".txt" or ".props")
+                {
+                    var text = File.ReadAllText(f);
+                    if (needles.Any(n => text.Contains(n))) hits.Add(f);
+                }
+            }
+        }
+        Assert.Empty(hits);
+    }
+
+    private static string RepoRoot()
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (d != null)
+        {
+            if (Directory.Exists(Path.Combine(d.FullName, "AutoPilot", "Agents"))) return d.FullName;
+            d = d.Parent;
+        }
+        throw new DirectoryNotFoundException("repo root");
     }
 
     // ---------- AC-5 ----------
