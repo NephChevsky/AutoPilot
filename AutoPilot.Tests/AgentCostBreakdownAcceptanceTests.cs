@@ -12,14 +12,14 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
         try { Directory.Delete(_dir, true); } catch { }
     }
 
-    private sealed class NullLog : ILogger<UsageLedger>
+    private sealed class NullLog : ILogger<UsageCache>
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) { }
     }
 
-    private string NewPath() => Path.Combine(_dir, "usage", "session-costs.json");
+    private UsageCache NewCache() => new(Path.Combine(_dir, "session-state"), "Orchestrator", _ => true, new NullLog());
 
     private static AgentCost Agent(string? name, double req, double nano, long i, long o, long cr, long cw, long r) => new()
     {
@@ -127,66 +127,51 @@ public class AgentCostBreakdownAcceptanceTests : IDisposable
 
     // AC-2
     [Fact]
-    public void Ledger_GetAgentTotals_EmptyLedger_IsEmpty()
+    public void Cache_GetAgentTotals_Empty_IsEmpty()
     {
-        var ledger = new UsageLedger(NewPath(), new NullLog());
-        Assert.Empty(ledger.GetAgentTotals());
+        Assert.Empty(NewCache().GetAgentTotals());
     }
 
     [Fact]
-    public void Ledger_GetAgentTotals_UnreadableFile_IsEmpty()
+    public void Cache_GetAgentTotals_AggregatesUpdates()
     {
-        var path = NewPath();
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, "{ this is not json");
-        var ledger = new UsageLedger(path, new NullLog());
-        Assert.Empty(ledger.GetAgentTotals());
+        var c = NewCache();
+        c.Update(Session("a", 0, ("coder", Agent("Coder", 1, 1e9, 10, 20, 30, 40, 50))));
+        c.Update(Session("b", 1, ("coder", Agent("Coder", 2, 2e9, 1, 1, 1, 1, 1)), ("rev", Agent("Reviewer", 1, 5e8, 0, 0, 0, 0, 0))));
+        c.Update(new SessionCost { SessionId = "c" });
+
+        var totals = c.GetAgentTotals();
+        Assert.Equal(2, totals.Count);
+        Assert.Equal(3, totals["coder"].Requests);
+        Assert.Equal(3.0, totals["coder"].AiCredits, 6);
+        Assert.Equal(11, totals["coder"].InputTokens);
+        Assert.Equal(51, totals["coder"].ReasoningTokens);
+        Assert.Equal(0.5, totals["rev"].AiCredits, 6);
+        Assert.Equal("Reviewer", totals["rev"].DisplayName);
     }
 
     [Fact]
-    public async Task Ledger_GetAgentTotals_AggregatesRecords_AndSurvivesReopen()
+    public void Cache_GetAgentTotals_ReUpdatingSameSession_DoesNotDoubleCount()
     {
-        var path = NewPath();
-        var ledger = new UsageLedger(path, new NullLog());
-        await ledger.RecordAsync(Session("a", 0, ("coder", Agent("Coder", 1, 1e9, 10, 20, 30, 40, 50))));
-        await ledger.RecordAsync(Session("b", 1, ("coder", Agent("Coder", 2, 2e9, 1, 1, 1, 1, 1)), ("rev", Agent("Reviewer", 1, 5e8, 0, 0, 0, 0, 0))));
-        await ledger.RecordAsync(new SessionCost { SessionId = "c" });
-
-        foreach (var l in new[] { ledger, new UsageLedger(path, new NullLog()) })
-        {
-            var totals = l.GetAgentTotals();
-            Assert.Equal(2, totals.Count);
-            Assert.Equal(3, totals["coder"].Requests);
-            Assert.Equal(3.0, totals["coder"].AiCredits, 6);
-            Assert.Equal(11, totals["coder"].InputTokens);
-            Assert.Equal(51, totals["coder"].ReasoningTokens);
-            Assert.Equal(0.5, totals["rev"].AiCredits, 6);
-            Assert.Equal("Reviewer", totals["rev"].DisplayName);
-        }
-    }
-
-    [Fact]
-    public async Task Ledger_GetAgentTotals_ReRecordingSameSession_DoesNotDoubleCount()
-    {
-        var ledger = new UsageLedger(NewPath(), new NullLog());
-        await ledger.RecordAsync(Session("a", 0, ("x", Agent("X", 1, 1e9, 1, 1, 1, 1, 1))));
-        await ledger.RecordAsync(Session("a", 1, ("x", Agent("X", 4, 3e9, 1, 1, 1, 1, 1))));
-        var t = ledger.GetAgentTotals()["x"];
+        var c = NewCache();
+        c.Update(Session("a", 0, ("x", Agent("X", 1, 1e9, 1, 1, 1, 1, 1))));
+        c.Update(Session("a", 1, ("x", Agent("X", 4, 3e9, 1, 1, 1, 1, 1))));
+        var t = c.GetAgentTotals()["x"];
         Assert.Equal(4, t.Requests);
         Assert.Equal(3.0, t.AiCredits, 6);
     }
 
     // AC-7
     [Fact]
-    public async Task ExistingTotals_UnaffectedByAgentData()
+    public void ExistingTotals_UnaffectedByAgentData()
     {
-        var ledger = new UsageLedger(NewPath(), new NullLog());
+        var c = NewCache();
         var s = Session("a", 0, ("x", Agent("X", 1, 1e9, 1, 1, 1, 1, 1)));
         s.NanoAiu = 4e9;
-        await ledger.RecordAsync(s);
-        var totals = ledger.GetTotals();
+        c.Update(s);
+        var totals = c.GetTotals();
         Assert.Equal(1, totals.SessionCount);
         Assert.Equal(4.0, totals.AiCredits, 6);
-        Assert.Single(ledger.GetAll());
+        Assert.Single(c.GetAll());
     }
 }

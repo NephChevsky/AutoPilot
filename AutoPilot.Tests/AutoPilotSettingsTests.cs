@@ -5,6 +5,22 @@ namespace AutoPilot.Tests
     public class AutoPilotSettingsTests
     {
         [Fact]
+        public void ResolveSessionStateDirectory_uses_configured_copilot_directory()
+        {
+            var settings = new AutoPilotSettings { CopilotDirectory = Path.Combine(Path.GetTempPath(), "cop") };
+
+            Assert.Equal(Path.Combine(Path.GetFullPath(settings.CopilotDirectory), "session-state"), settings.ResolveSessionStateDirectory());
+        }
+
+        [Fact]
+        public void ResolveSessionStateDirectory_defaults_to_user_profile_copilot_folder()
+        {
+            var expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot", "session-state");
+
+            Assert.Equal(expected, new AutoPilotSettings().ResolveSessionStateDirectory());
+        }
+
+        [Fact]
         public void Worktree_settings_have_defaults()
         {
             var settings = new AutoPilotSettings();

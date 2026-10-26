@@ -12,10 +12,6 @@ public class PremiumRemovalAcceptanceTests : IDisposable
         try { Directory.Delete(_dir, true); } catch { }
     }
 
-    private string NewPath() => Path.Combine(_dir, "usage", "session-costs.json");
-
-    private static UsageLedger Open(string path) => new(path, NullLogger<UsageLedger>.Instance);
-
     public static IEnumerable<object[]> CostTypes() =>
     [
         [typeof(UsageFigures)], [typeof(ModelCost)], [typeof(AgentCost)],
@@ -41,42 +37,20 @@ public class PremiumRemovalAcceptanceTests : IDisposable
         Assert.True(UsageAccumulator.HasUsage(new SessionCost { SessionId = "t", InputTokens = 1 }));
     }
 
-    // AC-4
+    // Premium "cost" (requests.cost) in events must not surface anywhere; credits come from nanoAiu.
     [Fact]
-    public async Task Record_WritesNoPremiumProperties()
+    public void EventsWithRequestCost_LoadCreditsAndTokens_WithoutPremium()
     {
-        var path = NewPath();
-        var ledger = Open(path);
-        var c = new SessionCost { SessionId = "s1", Title = "t", NanoAiu = 2e9, InputTokens = 10, OutputTokens = 5 };
-        c.Models["gpt"] = new ModelCost { Requests = 2, NanoAiu = 2e9, InputTokens = 10 };
-        c.Agents["coder"] = new AgentCost { DisplayName = "Coder", Requests = 1, NanoAiu = 1e9 };
-        await ledger.RecordAsync(c);
-        var text = await File.ReadAllTextAsync(path);
-        Assert.DoesNotContain("premium", text, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("nanoAiu", text);
-    }
-
-    private const string Legacy = """
-    {"sessions":[
-      {"sessionId":"a","title":"A","nanoAiu":3000000000,"inputTokens":100,"outputTokens":50,"cacheReadTokens":4,"cacheWriteTokens":3,"reasoningTokens":2,
-       "premiumRequests":7.5,
-       "models":{"gpt":{"requests":2,"premiumCost":3,"nanoAiu":3000000000,"inputTokens":100}},
-       "agents":{"coder":{"displayName":"Coder","requests":2,"premiumCost":1.5,"nanoAiu":2000000000,"inputTokens":60,"outputTokens":30}}},
-      {"sessionId":"b","title":"B","nanoAiu":1000000000,"inputTokens":10,"outputTokens":5,"premiumRequests":1,
-       "agents":{"coder":{"displayName":"Coder","premiumCost":9,"nanoAiu":1000000000,"inputTokens":10,"outputTokens":5}}}
-    ]}
-    """;
-
-    // AC-5
-    [Fact]
-    public async Task LegacyFile_LoadsIgnoringPremium_AndResaveDropsIt()
-    {
-        var path = NewPath();
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllTextAsync(path, Legacy);
-
-        var ledger = Open(path);
-        var a = ledger.Get("a");
+        var sessions = Path.Combine(_dir, "session-state");
+        var d = Path.Combine(sessions, "a");
+        Directory.CreateDirectory(d);
+        File.WriteAllLines(Path.Combine(d, "events.jsonl"),
+        [
+            """{"type":"session.start","data":{"sessionId":"a","startTime":"2026-01-01T00:00:00Z","context":{"cwd":"C:\\r"}},"timestamp":"2026-01-01T00:00:00Z"}""",
+            """{"type":"session.shutdown","data":{"totalNanoAiu":3000000000,"modelMetrics":{"gpt":{"requests":{"count":2,"cost":3},"usage":{"inputTokens":100,"outputTokens":50,"cacheReadTokens":4,"cacheWriteTokens":3,"reasoningTokens":2},"totalNanoAiu":3000000000}},"agentMetrics":{"main":{"totalNanoAiu":3000000000,"modelMetrics":{"gpt":{"requests":{"count":2,"cost":3},"usage":{"inputTokens":100,"outputTokens":50,"cacheReadTokens":4,"cacheWriteTokens":3,"reasoningTokens":2},"totalNanoAiu":3000000000}}}}},"timestamp":"2026-01-01T01:00:00Z"}""",
+        ]);
+        var cache = new UsageCache(sessions, "Orchestrator", _ => true, NullLogger<UsageCache>.Instance);
+        var a = cache.Get("a");
         Assert.NotNull(a);
         Assert.Equal(3.0, a!.AiCredits, 6);
         Assert.Equal(100, a.InputTokens);
@@ -86,37 +60,20 @@ public class PremiumRemovalAcceptanceTests : IDisposable
         Assert.Equal(2, a.ReasoningTokens);
         Assert.Equal(3.0, a.Models["gpt"].AiCredits, 6);
         Assert.Equal(2, a.Models["gpt"].Requests);
-        Assert.Equal("Coder", a.Agents["coder"].DisplayName);
-        Assert.Equal(2.0, a.Agents["coder"].AiCredits, 6);
-
-        var totals = ledger.GetTotals();
-        Assert.Equal(2, totals.SessionCount);
-        Assert.Equal(4.0, totals.AiCredits, 6);
-        Assert.Equal(110, totals.InputTokens);
-        Assert.Equal(55, totals.OutputTokens);
-
-        var agents = ledger.GetAgentTotals();
-        Assert.Equal(3.0, agents["coder"].AiCredits, 6);
-        Assert.Equal(70, agents["coder"].InputTokens);
-
-        await ledger.RecordAsync(new SessionCost { SessionId = "c", NanoAiu = 1e9, InputTokens = 1 });
-        var text = await File.ReadAllTextAsync(path);
-        Assert.DoesNotContain("premium", text, StringComparison.OrdinalIgnoreCase);
-
-        var again = Open(path);
-        Assert.Equal(3, again.GetTotals().SessionCount);
-        Assert.Equal(5.0, again.GetTotals().AiCredits, 6);
+        Assert.Equal("Orchestrator", a.Agents.Values.Single().DisplayName);
+        Assert.DoesNotContain("main", a.Agents.Values.Select(x => x.DisplayName));
+        Assert.Equal(3.0, cache.GetTotals().AiCredits, 6);
     }
 
-    // AC-3: Apply works on plain figures with no premium involvement
+    // AC-3: ToSessionCost works on plain figures with no premium involvement
     [Fact]
-    public void Apply_AccumulatesCreditsAndTokens()
+    public void ToSessionCost_CarriesCreditsAndTokens()
     {
-        var baseline = new UsageSnapshot();
         var current = new UsageSnapshot { NanoAiu = 2e9, InputTokens = 10, OutputTokens = 4 };
-        var cost = UsageAccumulator.Apply("s", null, baseline, current, "T");
+        var cost = UsageAccumulator.ToSessionCost("s", current, "T", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         Assert.Equal(2.0, cost.AiCredits, 6);
         Assert.Equal(10, cost.InputTokens);
+        Assert.Equal("T", cost.Title);
         Assert.True(UsageAccumulator.HasUsage(cost));
     }
 }

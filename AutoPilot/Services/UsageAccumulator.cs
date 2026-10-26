@@ -2,50 +2,55 @@ using GitHub.Copilot;
 
 namespace AutoPilot.Services
 {
-    /// <summary>Pure helpers that turn SDK metrics into snapshots and apply resume-safe deltas to stored costs.</summary>
+    /// <summary>Pure helpers that turn SDK metrics into snapshots and session costs, and sum costs.</summary>
     public static class UsageAccumulator
     {
         public const double NanoPerCredit = 1e9;
         public const int MaxTitleLength = 100;
 
-        /// <summary>
-        /// new total = stored + max(0, current - baseline), field by field (including per-model and per-agent figures).
-        /// <paramref name="baseline"/> is the SDK metrics when the session was created/resumed and <paramref name="stored"/>
-        /// the ledger record at that same moment, so repeated calls with growing <paramref name="current"/> never double-count.
-        /// Inputs are not modified.
-        /// </summary>
-        public static SessionCost Apply(string sessionId, SessionCost? stored, UsageSnapshot baseline, UsageSnapshot current, string? title = null, DateTimeOffset? now = null)
+        /// <summary>Builds the cost record of a session from a metrics snapshot. The snapshot is copied, not shared.</summary>
+        public static SessionCost ToSessionCost(string sessionId, UsageSnapshot snapshot, string? title, DateTimeOffset firstSeen, DateTimeOffset lastUpdated)
         {
-            var timestamp = now ?? DateTimeOffset.UtcNow;
-            var result = new SessionCost
+            ArgumentNullException.ThrowIfNull(snapshot);
+            var cost = new SessionCost
             {
                 SessionId = sessionId,
-                Title = stored?.Title ?? Truncate(title),
-                FirstSeen = stored?.FirstSeen ?? timestamp,
-                LastUpdated = timestamp,
-                NanoAiu = (stored?.NanoAiu ?? 0) + Delta(current.NanoAiu, baseline.NanoAiu),
-                InputTokens = (stored?.InputTokens ?? 0) + Delta(current.InputTokens, baseline.InputTokens),
-                OutputTokens = (stored?.OutputTokens ?? 0) + Delta(current.OutputTokens, baseline.OutputTokens),
-                CacheReadTokens = (stored?.CacheReadTokens ?? 0) + Delta(current.CacheReadTokens, baseline.CacheReadTokens),
-                CacheWriteTokens = (stored?.CacheWriteTokens ?? 0) + Delta(current.CacheWriteTokens, baseline.CacheWriteTokens),
-                ReasoningTokens = (stored?.ReasoningTokens ?? 0) + Delta(current.ReasoningTokens, baseline.ReasoningTokens),
+                Title = title,
+                FirstSeen = firstSeen,
+                LastUpdated = lastUpdated,
+                NanoAiu = snapshot.NanoAiu,
+                InputTokens = snapshot.InputTokens,
+                OutputTokens = snapshot.OutputTokens,
+                CacheReadTokens = snapshot.CacheReadTokens,
+                CacheWriteTokens = snapshot.CacheWriteTokens,
+                ReasoningTokens = snapshot.ReasoningTokens,
             };
 
-            var storedModels = stored?.Models ?? [];
-            foreach (var key in storedModels.Keys.Union(current.Models.Keys))
+            foreach (var (key, model) in snapshot.Models)
             {
-                result.Models[key] = Combine(new ModelCost(), storedModels.GetValueOrDefault(key), baseline.Models.GetValueOrDefault(key), current.Models.GetValueOrDefault(key));
+                cost.Models[key] = Copy(new ModelCost(), model);
             }
 
-            var storedAgents = stored?.Agents ?? [];
-            foreach (var key in storedAgents.Keys.Union(current.Agents.Keys))
+            foreach (var (key, agent) in snapshot.Agents)
             {
-                var agent = Combine(new AgentCost(), storedAgents.GetValueOrDefault(key), baseline.Agents.GetValueOrDefault(key), current.Agents.GetValueOrDefault(key));
-                agent.DisplayName = current.Agents.GetValueOrDefault(key)?.DisplayName ?? storedAgents.GetValueOrDefault(key)?.DisplayName;
-                result.Agents[key] = agent;
+                var copy = Copy(new AgentCost(), agent);
+                copy.DisplayName = agent.DisplayName;
+                cost.Agents[key] = copy;
             }
 
-            return result;
+            return cost;
+        }
+
+        private static T Copy<T>(T target, UsageFigures source) where T : UsageFigures
+        {
+            target.Requests = source.Requests;
+            target.NanoAiu = source.NanoAiu;
+            target.InputTokens = source.InputTokens;
+            target.OutputTokens = source.OutputTokens;
+            target.CacheReadTokens = source.CacheReadTokens;
+            target.CacheWriteTokens = source.CacheWriteTokens;
+            target.ReasoningTokens = source.ReasoningTokens;
+            return target;
         }
 
         /// <summary>True when the cost records any spend (AI credits or tokens).</summary>
@@ -121,16 +126,40 @@ namespace AutoPilot.Services
             return result;
         }
 
+        /// <summary>Trims and truncates a prompt to a title; null for blank input.</summary>
+        public static string? Truncate(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return null;
+            }
+
+            var trimmed = text.Trim();
+            return trimmed.Length <= MaxTitleLength ? trimmed : trimmed[..MaxTitleLength];
+        }
+
         /// <summary>Maps SDK metrics to a snapshot. "main" is named <paramref name="orchestratorName"/>; agents are aggregated by name.</summary>
         public static UsageSnapshot ToSnapshot(UsageGetMetricsResult metrics, string orchestratorName)
         {
+            ArgumentNullException.ThrowIfNull(metrics);
+            return ToSnapshot(FromSdk(metrics), orchestratorName);
+        }
+
+        /// <summary>The single mapping used for both live SDK metrics and the metrics persisted in a session.shutdown event.</summary>
+        internal static UsageSnapshot ToSnapshot(UsageMetricsData metrics, string orchestratorName)
+        {
             var snapshot = new UsageSnapshot
             {
-                NanoAiu = ToDouble(metrics.TotalNanoAiu),
+                NanoAiu = metrics.TotalNanoAiu ?? 0,
             };
 
-            foreach (var (model, metric) in metrics.ModelMetrics as IEnumerable<KeyValuePair<string, UsageMetricsModelMetric>> ?? [])
+            foreach (var (model, metric) in metrics.ModelMetrics ?? [])
             {
+                if (metric is null)
+                {
+                    continue;
+                }
+
                 var cost = ToFigures(new ModelCost(), metric);
                 snapshot.Models[model] = cost;
                 snapshot.InputTokens += cost.InputTokens;
@@ -140,8 +169,13 @@ namespace AutoPilot.Services
                 snapshot.ReasoningTokens += cost.ReasoningTokens;
             }
 
-            foreach (var (instanceId, metric) in metrics.AgentMetrics as IEnumerable<KeyValuePair<string, UsageMetricsAgentMetric>> ?? [])
+            foreach (var (instanceId, metric) in metrics.AgentMetrics ?? [])
             {
+                if (metric is null)
+                {
+                    continue;
+                }
+
                 var name = instanceId == "main" || string.IsNullOrWhiteSpace(metric.AgentName) ? orchestratorName : metric.AgentName;
                 if (!snapshot.Agents.TryGetValue(name, out var agent))
                 {
@@ -149,9 +183,14 @@ namespace AutoPilot.Services
                     snapshot.Agents[name] = agent;
                 }
 
-                agent.NanoAiu += ToDouble(metric.TotalNanoAiu);
-                foreach (var (_, modelMetric) in metric.ModelMetrics as IEnumerable<KeyValuePair<string, UsageMetricsModelMetric>> ?? [])
+                agent.NanoAiu += metric.TotalNanoAiu ?? 0;
+                foreach (var (_, modelMetric) in metric.ModelMetrics ?? [])
                 {
+                    if (modelMetric is null)
+                    {
+                        continue;
+                    }
+
                     var figures = ToFigures(new ModelCost(), modelMetric);
                     agent.Requests += figures.Requests;
                     agent.InputTokens += figures.InputTokens;
@@ -165,22 +204,52 @@ namespace AutoPilot.Services
             return snapshot;
         }
 
-        /// <summary>Trims and truncates a prompt to a title; null for blank input.</summary>
-        public static string? Truncate(string? text)
+        private static UsageMetricsData FromSdk(UsageGetMetricsResult metrics)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            var data = new UsageMetricsData { TotalNanoAiu = ToNullableDouble(metrics.TotalNanoAiu), ModelMetrics = [], AgentMetrics = [] };
+            foreach (var (model, metric) in metrics.ModelMetrics as IEnumerable<KeyValuePair<string, UsageMetricsModelMetric>> ?? [])
             {
-                return null;
+                data.ModelMetrics[model] = FromSdk(metric);
             }
 
-            var trimmed = text.Trim();
-            return trimmed.Length <= MaxTitleLength ? trimmed : trimmed[..MaxTitleLength];
+            foreach (var (instanceId, metric) in metrics.AgentMetrics as IEnumerable<KeyValuePair<string, UsageMetricsAgentMetric>> ?? [])
+            {
+                var agent = new UsageAgentMetricData
+                {
+                    AgentName = metric.AgentName,
+                    AgentDisplayName = metric.AgentDisplayName,
+                    TotalNanoAiu = ToNullableDouble(metric.TotalNanoAiu),
+                    ModelMetrics = [],
+                };
+                foreach (var (model, modelMetric) in metric.ModelMetrics as IEnumerable<KeyValuePair<string, UsageMetricsModelMetric>> ?? [])
+                {
+                    agent.ModelMetrics[model] = FromSdk(modelMetric);
+                }
+
+                data.AgentMetrics[instanceId] = agent;
+            }
+
+            return data;
         }
 
-        private static T ToFigures<T>(T target, UsageMetricsModelMetric metric) where T : UsageFigures
+        private static UsageModelMetricData FromSdk(UsageMetricsModelMetric metric) => new()
         {
-            target.Requests = ToDouble(metric.Requests?.Count);
-            target.NanoAiu = ToDouble(metric.TotalNanoAiu);
+            TotalNanoAiu = ToNullableDouble(metric.TotalNanoAiu),
+            Requests = new UsageRequestsData { Count = ToNullableDouble(metric.Requests?.Count) },
+            Usage = new UsageTokensData
+            {
+                InputTokens = ToNullableDouble(metric.Usage?.InputTokens),
+                OutputTokens = ToNullableDouble(metric.Usage?.OutputTokens),
+                CacheReadTokens = ToNullableDouble(metric.Usage?.CacheReadTokens),
+                CacheWriteTokens = ToNullableDouble(metric.Usage?.CacheWriteTokens),
+                ReasoningTokens = ToNullableDouble(metric.Usage?.ReasoningTokens),
+            },
+        };
+
+        private static T ToFigures<T>(T target, UsageModelMetricData metric) where T : UsageFigures
+        {
+            target.Requests = metric.Requests?.Count ?? 0;
+            target.NanoAiu = metric.TotalNanoAiu ?? 0;
             target.InputTokens = ToLong(metric.Usage?.InputTokens);
             target.OutputTokens = ToLong(metric.Usage?.OutputTokens);
             target.CacheReadTokens = ToLong(metric.Usage?.CacheReadTokens);
@@ -189,24 +258,56 @@ namespace AutoPilot.Services
             return target;
         }
 
-        private static T Combine<T>(T target, UsageFigures? stored, UsageFigures? baseline, UsageFigures? current) where T : UsageFigures
-        {
-            target.Requests = (stored?.Requests ?? 0) + Delta(current?.Requests ?? 0, baseline?.Requests ?? 0);
-            target.NanoAiu = (stored?.NanoAiu ?? 0) + Delta(current?.NanoAiu ?? 0, baseline?.NanoAiu ?? 0);
-            target.InputTokens = (stored?.InputTokens ?? 0) + Delta(current?.InputTokens ?? 0, baseline?.InputTokens ?? 0);
-            target.OutputTokens = (stored?.OutputTokens ?? 0) + Delta(current?.OutputTokens ?? 0, baseline?.OutputTokens ?? 0);
-            target.CacheReadTokens = (stored?.CacheReadTokens ?? 0) + Delta(current?.CacheReadTokens ?? 0, baseline?.CacheReadTokens ?? 0);
-            target.CacheWriteTokens = (stored?.CacheWriteTokens ?? 0) + Delta(current?.CacheWriteTokens ?? 0, baseline?.CacheWriteTokens ?? 0);
-            target.ReasoningTokens = (stored?.ReasoningTokens ?? 0) + Delta(current?.ReasoningTokens ?? 0, baseline?.ReasoningTokens ?? 0);
-            return target;
-        }
+        private static double? ToNullableDouble(object? value) => value is null ? null : Convert.ToDouble(value);
 
-        private static double Delta(double current, double baseline) => Math.Max(0, current - baseline);
+        private static long ToLong(double? value) => value is null ? 0 : Convert.ToInt64(Math.Round(value.Value));
+    }
 
-        private static long Delta(long current, long baseline) => Math.Max(0, current - baseline);
+    /// <summary>Shape of the usage metrics of the SDK and of a <c>session.shutdown</c> event (the subset AutoPilot reads).</summary>
+    internal sealed class UsageMetricsData
+    {
+        public double? TotalNanoAiu { get; set; }
 
-        private static double ToDouble(object? value) => value is null ? 0 : Convert.ToDouble(value);
+        public Dictionary<string, UsageModelMetricData?>? ModelMetrics { get; set; }
 
-        private static long ToLong(object? value) => value is null ? 0 : Convert.ToInt64(Math.Round(Convert.ToDouble(value)));
+        public Dictionary<string, UsageAgentMetricData?>? AgentMetrics { get; set; }
+    }
+
+    internal sealed class UsageAgentMetricData
+    {
+        public string? AgentName { get; set; }
+
+        public string? AgentDisplayName { get; set; }
+
+        public double? TotalNanoAiu { get; set; }
+
+        public Dictionary<string, UsageModelMetricData?>? ModelMetrics { get; set; }
+    }
+
+    internal sealed class UsageModelMetricData
+    {
+        public double? TotalNanoAiu { get; set; }
+
+        public UsageRequestsData? Requests { get; set; }
+
+        public UsageTokensData? Usage { get; set; }
+    }
+
+    internal sealed class UsageRequestsData
+    {
+        public double? Count { get; set; }
+    }
+
+    internal sealed class UsageTokensData
+    {
+        public double? InputTokens { get; set; }
+
+        public double? OutputTokens { get; set; }
+
+        public double? CacheReadTokens { get; set; }
+
+        public double? CacheWriteTokens { get; set; }
+
+        public double? ReasoningTokens { get; set; }
     }
 }

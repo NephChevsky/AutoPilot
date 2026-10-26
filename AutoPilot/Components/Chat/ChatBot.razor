@@ -3,7 +3,7 @@
 @using Microsoft.Extensions.Options
 @implements IDisposable
 @inject AgentChatSession Chat
-@inject UsageLedger Ledger
+@inject UsageCache Usage
 @inject AgentCatalog Catalog
 @inject IOptions<AutoPilotSettings> Settings
 @inject RepositoryCatalog Repositories
@@ -126,7 +126,7 @@
                     <span class="conversation-title">@(string.IsNullOrWhiteSpace(conversation.Summary) ? "Untitled conversation" : conversation.Summary)</span>
                     <small class="conversation-repo">@item.Repository.Name</small>
                     <small>@conversation.ModifiedTime.ToLocalTime().ToString("g")</small>
-                    @if (Ledger.Get(conversation.SessionId) is { } saved)
+                    @if (Usage.Get(conversation.SessionId) is { } saved)
                     {
                         <small class="conversation-cost">@FormatCredits(saved.AiCredits) AI credits</small>
                     }
@@ -179,7 +179,7 @@
                     @("—")
                 }
             </div>
-            @{ var totals = Ledger.GetTotals(); }
+            @{ var totals = Usage.GetTotals(); }
             <div>All sessions: @FormatCredits(totals.AiCredits) AI credits (@totals.SessionCount sessions)</div>
             <details class="agent-costs">
                 <summary>Cost by agent</summary>
@@ -1008,7 +1008,7 @@
         }
 
         Chat.Changed += OnChatChanged;
-        Ledger.Changed += OnLedgerChanged;
+        Usage.Changed += OnLedgerChanged;
         Tasks.Changed += OnLedgerChanged;
         _listedSessionId = Chat.CurrentSessionId;
         _wasBusy = Chat.IsBusy;
@@ -1173,7 +1173,7 @@
 
     private List<AgentCostRow> BuildAgentCostRows()
     {
-        var totals = Ledger.GetAgentTotals();
+        var totals = Usage.GetAgentTotals();
         var session = Chat.CurrentCost?.Agents;
         var names = totals.Keys.Union(session?.Keys.AsEnumerable() ?? [], StringComparer.Ordinal);
         return names
@@ -1216,7 +1216,7 @@
     {
         _isDisposed = true;
         Chat.Changed -= OnChatChanged;
-        Ledger.Changed -= OnLedgerChanged;
+        Usage.Changed -= OnLedgerChanged;
         Tasks.Changed -= OnLedgerChanged;
         _disposed.Cancel();
         _disposed.Dispose();
